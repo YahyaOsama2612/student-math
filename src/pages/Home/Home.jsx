@@ -47,7 +47,7 @@ const mainFeatures = [
     MainIcon: SiCoursera,
     buttons: [
       { label: "Buy Courses", icon: FileText, path: "/user/mycourses" },
-      { label: "Lesson", icon: BarChart, path: "/user/lesson" },
+  
     ],
   },
 ];
