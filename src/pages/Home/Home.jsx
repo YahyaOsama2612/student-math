@@ -25,7 +25,8 @@ const mainFeatures = [
   {
     title: "Attend",
     // تم تعديل الوصف ليتناسب مع الحضور بدلاً من المعاملات المالية
-    description: "Track your upcoming sessions and review your attendance history",
+    description:
+      "Track your upcoming sessions and review your attendance history",
     MainIcon: ShoppingBag,
     buttons: [
       { label: "Upcoming", icon: BarChart, path: "/user/upcoming" },
@@ -47,9 +48,24 @@ const mainFeatures = [
     MainIcon: SiCoursera,
     buttons: [
       { label: "Buy Courses", icon: FileText, path: "/user/mycourses" },
-  
     ],
   },
+  {
+    title: "My Purchases",
+    description: "Review your past purchases and access your course materials",
+    MainIcon: SiCoursera,
+    buttons: [
+      { label: "My Purchases", icon: FileText, path: "/user/mypurchases" },
+    ],
+  },
+  {
+    title: "Purchases Manager",
+    description: "Review your pending purchases and manage your transactions",
+    MainIcon: SiCoursera,
+    buttons: [
+      { label: "PurchasesManager", icon: FileText, path: "/user/pendingpurchases" },
+    ],
+  }
 ];
 
 // 2. Component مخصص للكروت الرئيسية لمنع التكرار
@@ -94,13 +110,11 @@ const Home = () => {
     // ضفنا max-w-7xl عشان الصفحة متبقاش ممطوطة جداً في الشاشات العملاقة
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
         {/* رسم الكروت الرئيسية بشكل ديناميكي */}
         {mainFeatures.map((feature, index) => (
           <ActionCard key={index} {...feature} navigate={navigate} />
         ))}
 
-      
         <Card>
           <h2 className="text-lg font-bold mb-4">Recent Activity</h2>
           <img
@@ -125,7 +139,9 @@ const Home = () => {
 // 3. إصلاح الـ Card Component: ضفنا className عشان يقبل الكلاسات اللي بتتبعتله ويدمجها
 const Card = ({ children, className = "" }) => {
   return (
-    <div className={`bg-white rounded-2xl shadow-md p-4 min-h-[150px] hover:shadow-xl transition ${className}`}>
+    <div
+      className={`bg-white rounded-2xl shadow-md p-4 min-h-[150px] hover:shadow-xl transition ${className}`}
+    >
       {children}
     </div>
   );

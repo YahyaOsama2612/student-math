@@ -27,6 +27,9 @@ import Lesson  from "../pages/Lesson/lesson";
 import Chapters from "../pages/Chapters/Chapters";
 import OneChapter from "../pages/Chapters/OneChapter";
 import Enrollment from "../pages/Enrollment/Enrollment";
+import Purchases from "../pages/Purchases/purchases";
+import PendingPurchases from "../pages/Purchases/PendingPurchase";
+import ContentDetails from "../pages/Purchases/ContentDetails";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -136,6 +139,18 @@ const router = createBrowserRouter([
         path: "enrollment",
         element: <Enrollment />,
       },
+      {
+        path: "mypurchases",
+        element: <Purchases />,
+      },
+      {
+        path: "pendingpurchases",
+        element: <PendingPurchases />,
+      },
+      {
+        path: "contentdetails/:id",
+        element: <ContentDetails />,
+      }
     ],
   },
 ]);

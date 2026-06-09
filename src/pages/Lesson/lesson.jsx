@@ -1,5 +1,5 @@
 import React from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate,useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
@@ -19,7 +19,7 @@ import {
 const Lesson = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-
+  const location = useLocation();
   // استدعاء الـ API الخاص بتفاصيل الدرس
   const { data, loading, error } = useGet(`/api/user/lessons/${id}`);
 
@@ -30,7 +30,7 @@ const Lesson = () => {
   const teacherInfo = responseData?.teacher;
   const ideas = responseData?.ideas || [];
   const prices = responseData?.prices || [];
-  const isLocked = responseData?.isLocked;
+const isLocked = location.state?.fromPurchases ? false : responseData?.isLocked;
 
   // جلب السعر الافتراضي للدرس
   const defaultPricePlan = prices.find((p) => p.isDefault) || prices[0];
@@ -38,27 +38,27 @@ const Lesson = () => {
     ? parseFloat(defaultPricePlan.totalPriceEgp)
     : 0;
 
- const handleEnroll = () => {
-  if (!defaultPricePlan) return;
+  const handleEnroll = () => {
+    if (!defaultPricePlan) return;
 
-  navigate("/user/enrollment", {
-    state: {
-      type: "lessonIds",
-      selectedItems: [
-        {
-          id: lessonInfo.id,
-          name: lessonInfo.name,
-          planId: defaultPricePlan.id, // 👈 أضف هذا السطر لإرسال الـ ID الخاص بالخطة السعرية
-          planLabel: defaultPricePlan.durationLabel,
-          price: lessonPrice,
-        },
-      ],
-      ids: [lessonInfo.id],
-      price: lessonPrice,
-      name: lessonInfo.name,
-    },
-  });
-};
+    navigate("/user/enrollment", {
+      state: {
+        type: "lessonIds",
+        selectedItems: [
+          {
+            id: lessonInfo.id,
+            name: lessonInfo.name,
+            planId: defaultPricePlan.id, // 👈 أضف هذا السطر لإرسال الـ ID الخاص بالخطة السعرية
+            planLabel: defaultPricePlan.durationLabel,
+            price: lessonPrice,
+          },
+        ],
+        ids: [lessonInfo.id],
+        price: lessonPrice,
+        name: lessonInfo.name,
+      },
+    });
+  };
 
   if (loading) return <Loader />;
   if (error || !lessonInfo) return <Errorpage />;
@@ -164,9 +164,14 @@ const Lesson = () => {
             {ideas.length > 0 ? (
               <div className="space-y-3">
                 {ideas.map((idea, index) => (
-                  <div key={index} className="flex gap-3 items-start">
+                  <div
+                    key={idea.id || index}
+                    className="flex gap-3 items-start"
+                  >
                     <CheckCircle2 className="w-5 h-5 text-one shrink-0 mt-0.5" />
-                    <p className="text-sm text-gray-600">{idea}</p>
+                    <p className="text-sm text-gray-600">
+                      {idea.idea || "No specific sub-topic text uploaded."}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -222,7 +227,6 @@ const Lesson = () => {
               <p className="text-xs text-gray-500 mb-4">
                 You are enrolled in this lesson. Enjoy learning!
               </p>
-              {/* هنا تقدر تضيف زرار "Start Watching" أو تفتح بيه الفيديوهات والمحتوى */}
               <div className="text-xs font-bold text-emerald-600 bg-emerald-50 py-2 rounded-xl border border-emerald-100">
                 Ready to stream
               </div>
