@@ -30,6 +30,7 @@ import Enrollment from "../pages/Enrollment/Enrollment";
 import Purchases from "../pages/Purchases/purchases";
 import PendingPurchases from "../pages/Purchases/PendingPurchase";
 import ContentDetails from "../pages/Purchases/ContentDetails";
+import Quiz from "../pages/Quizes/quiz";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -150,6 +151,10 @@ const router = createBrowserRouter([
       {
         path: "contentdetails/:id",
         element: <ContentDetails />,
+      },
+      {
+        path:"quiz/:quizId",
+        element: <Quiz />
       }
     ],
   },

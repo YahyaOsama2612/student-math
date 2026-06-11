@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
+import usePost from "@/hooks/usePost"; // تأكد من المسار حسب ترتيب مجلدات مشروعك
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import {
@@ -10,13 +11,13 @@ import {
   Lock,
   Unlock,
   Lightbulb,
-  Calendar,
   Layers,
-  CreditCard,
   BookOpen,
   Sparkles,
   Video,
   FileText,
+  HelpCircle,
+  Clock,
   X,
 } from "lucide-react";
 
@@ -24,24 +25,27 @@ const ContentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { postData, loading: startingQuiz } = usePost();
 
-  // حالة التحكم في فتح وإغلاق نافذة المعاينة الداخلية للمرفقات
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     url: "",
     title: "",
   });
 
-  // لقط نوع الكونتنت المبعوث في الـ state، وفي حال الـ Refresh يقرأ من الـ URL ديناميكياً
+  const currentState = location.state?.contentType;
   const contentType =
-    location.state?.contentType ||
-    (location.pathname.includes("/chapters/")
-      ? "chapters"
-      : location.pathname.includes("/lesson/")
-        ? "lessons"
-        : "courses");
+    currentState === "lessons" ||
+    currentState === "lesson" ||
+    location.pathname.includes("/lesson")
+      ? "lessons"
+      : location.pathname.includes("/chapters/") || currentState === "chapters"
+        ? "chapters"
+        : "courses";
 
-  // خريطة الـ APIs المظبوطة لكل تارجت
+  const isLessonType = contentType === "lessons";
+  const isChapterType = contentType === "chapters";
+
   const endpoints = {
     courses: `/api/user/courses/${id}`,
     chapters: `/api/user/chapters/${id}`,
@@ -49,47 +53,46 @@ const ContentDetails = () => {
   };
 
   const { data, loading, error } = useGet(endpoints[contentType]);
+  const { data: quizzesData } = useGet(
+    isLessonType ? `/api/user/quizzes/lesson/${id}` : null,
+  );
 
   if (loading) return <Loader />;
   if (error) return <Errorpage error={error} />;
 
   const rawData = data?.data || {};
 
-  // تصفية استخراج البيانات الأساسية بناءً على الهيكل الراجع من السيرفر (كورس / شابتر / درس)
-  const isChapterType = contentType === "chapters";
-  const isLessonType = contentType === "lessons";
-
-  let content = rawData; // الافتراضي للكورسات
+  let content = rawData;
   if (isChapterType) content = rawData.chapter || {};
   if (isLessonType) content = rawData.lesson || {};
 
-  // تجميع خطط الأسعار (الكورس والشابتر يرسلون pricePlans، والدرس يرسل prices)
+  const lessonsList = rawData.lessons || [];
+  const ideasList = rawData.ideas || [];
+
+  // [إعادة تفعيل] تجميع خطط الأسعار والمدرسين والترمات بناءً على هيكل البيانات المرسل
   const pricePlansList = content.pricePlans || rawData.prices || [];
 
-  // تجميع المدرسين
   const teachersList =
     (isChapterType || isLessonType) && rawData.teacher
       ? [{ name: rawData.teacher.name, role: "Instructor" }]
       : content.teachers || [];
 
-  // تجميع الـ Sub-Items (دروس للشابتر، أو أفكار للدرس)
-  const lessonsList = rawData.lessons || [];
-  const ideasList = rawData.ideas || [];
+  // جلب مصفوفة الاختبارات وترتيبها
+  const rawQuizzes = quizzesData?.data?.quizzes || quizzesData?.quizzes || [];
+  const quizzesList =
+    isLessonType && rawQuizzes.length > 0
+      ? [...rawQuizzes].sort((a, b) => (a.quizOrder || 0) - (b.quizOrder || 0))
+      : [];
 
-  // دالة ذكية لتحويل روابط Google Drive إلى روابط تضمين قابلة للعرض داخل الـ iframe مباشرة
   const getEmbedUrl = (url) => {
     if (!url) return "";
-
-    // استخراج الـ ID الخاص بالملف من روابط جوجل درايف المختلفة
     const driveIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
     if (driveIdMatch && driveIdMatch[1]) {
       return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
     }
-
     return url;
   };
 
-  // فتح نافذة المعاينة بالرابط المحوّل
   const handlePreview = (rawUrl, title) => {
     const embedUrl = getEmbedUrl(rawUrl);
     setPreviewModal({
@@ -137,7 +140,6 @@ const ContentDetails = () => {
 
       {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column (المعلومات وتفاصيل المحتوى) */}
         <div className="lg:col-span-2 space-y-6">
           {/* About Card */}
           <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
@@ -197,7 +199,6 @@ const ContentDetails = () => {
             </div>
           </div>
 
-          {/* سكشن دروس الشابتر (يظهر في حالة الشباتر فقط) */}
           {isChapterType && lessonsList.length > 0 && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
@@ -231,7 +232,6 @@ const ContentDetails = () => {
             </div>
           )}
 
-          {/* سكشن أفكار الدرس (يظهر في حالة الدروس فقط) */}
           {isLessonType && ideasList.length > 0 && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
@@ -246,7 +246,6 @@ const ContentDetails = () => {
                     key={idea.id}
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-gray-50/50 hover:bg-gray-50 transition-colors"
                   >
-                    {/* رقم الفكرة واسمها */}
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-amber-50 text-amber-600 font-bold rounded-full text-xs border border-amber-100">
                         {idea.ideaOrder}
@@ -255,8 +254,6 @@ const ContentDetails = () => {
                         {idea.idea}
                       </span>
                     </div>
-
-                    {/* أزرار المعاينة الداخلية بديلة للـ Tags الخارجية القديمة */}
                     <div className="flex items-center gap-2 self-end sm:self-center">
                       {idea.video && (
                         <button
@@ -265,11 +262,9 @@ const ContentDetails = () => {
                           }
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100 cursor-pointer"
                         >
-                          <Video className="w-3.5 h-3.5" />
-                          Watch Video
+                          <Video className="w-3.5 h-3.5" /> Watch Video
                         </button>
                       )}
-
                       {idea.pdf && (
                         <button
                           onClick={() =>
@@ -277,8 +272,7 @@ const ContentDetails = () => {
                           }
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-100 cursor-pointer"
                         >
-                          <FileText className="w-3.5 h-3.5" />
-                          View PDF
+                          <FileText className="w-3.5 h-3.5" /> View PDF
                         </button>
                       )}
                     </div>
@@ -288,7 +282,84 @@ const ContentDetails = () => {
             </div>
           )}
 
-          {/* Semester / Term Info */}
+          {isLessonType && quizzesList.length > 0 && (
+            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <HelpCircle className="w-5 h-5 text-indigo-500" />
+                <h3 className="text-lg font-bold text-gray-900">
+                  Lesson Quizzes ({quizzesList.length})
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {quizzesList.map((quiz) => (
+                  <div
+                    key={quiz.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-indigo-50/10 hover:bg-indigo-50/30 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs border border-indigo-100 mt-0.5">
+                        {quiz.quizOrder}
+                      </div>
+                      <div>
+                        <span className="text-sm font-semibold text-gray-800 block">
+                          {quiz.title}
+                        </span>
+                        {quiz.description && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {quiz.description}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                            <Clock className="w-3 h-3" />{" "}
+                            {quiz.durationMinutes || quiz.durationHours * 60}{" "}
+                            mins
+                          </span>
+                          <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                            Score: {quiz.totalScore}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        disabled={startingQuiz} // تعطيل الزر أثناء التحميل لمنع الضغط المتكرر
+                        onClick={async () => {
+                          try {
+                            // 1. عمل الـ POST لتهيئة المحاولة في السيرفر
+                            const res = await postData(
+                              {}, // البودي فارغ
+                              `/api/user/quizzes/${quiz.id}/start`,
+                              "Quiz started successfully!", // رسالة النجاح للـ Toast
+                            );
+
+                            // 2. التوجيه فوراً عند نجاح الطلب
+                            if (res) {
+                              navigate(`/user/quiz/${quiz.id}`);
+                            }
+                          } catch (err) {
+                            console.error("Failed to start quiz:", err);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors shadow-sm cursor-pointer"
+                      >
+                        {startingQuiz ? (
+                          <>
+                            {/* أنيميشن تحميل بسيط يظهر داخل الزر أثناء الإرسال */}
+                            <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            Starting...
+                          </>
+                        ) : (
+                          "Start Quiz"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {((content.isHaveSemester && content.semesters?.length > 0) ||
             rawData.semester) && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
@@ -323,7 +394,6 @@ const ContentDetails = () => {
             </div>
           )}
 
-          {/* Instructors */}
           {teachersList.length > 0 && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
@@ -353,15 +423,11 @@ const ContentDetails = () => {
             </div>
           )}
         </div>
-
-        {/* Right Column (خطط الأسعار) */}
       </div>
 
-      {/* النافذة المنبثقة الداخليّة للمعاينة (Modal Overlay) */}
       {previewModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-gray-100">
-            {/* Header الخاص بالـ Modal */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <h3 className="font-bold text-gray-900 truncate">
                 {previewModal.title}
@@ -375,8 +441,6 @@ const ContentDetails = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* الـ iframe المخصص لعرض الملف أو تشغيل الفيديو داخلياً */}
             <div className="flex-1 bg-gray-900 relative">
               <iframe
                 src={previewModal.url}

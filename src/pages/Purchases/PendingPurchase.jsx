@@ -163,10 +163,10 @@ const PendingPurchases = () => {
                   </div>
 
                   {/* حماية الكود من القيم الفارغة details?.name */}
-                  <h3 className="text-xl font-bold text-gray-900 mb-1 truncate">
+                 {/*  <h3 className="text-xl font-bold text-gray-900 mb-1 truncate">
                     {purchase.details?.name ||
                       `Purchase ID: #${purchase.id.slice(0, 8)}`}
-                  </h3>
+                  </h3> */}
 
                   <p className="text-sm font-medium text-blue-600 mb-4">
                     Type:{" "}
