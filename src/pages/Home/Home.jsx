@@ -18,8 +18,8 @@ const mainFeatures = [
     description: "Manage your transactions and check your balance easily",
     MainIcon: CreditCard,
     buttons: [
-      { label: "Payment", icon: CreditCard, path: "/user/payment" },
-      { label: "Wallet", icon: Wallet, path: "/user/wallet" },
+      { label: "Buy Purchases", icon: CreditCard, path: "/user/payment" },
+      { label: "History", icon: Clock, path: "/user/mypurchases" },
     ],
   },
   {
@@ -42,30 +42,30 @@ const mainFeatures = [
       { label: "Diagnostic Exam", icon: BarChart, path: "/user/diagnostic" },
     ],
   },
-  {
+  /* {
     title: "Buy Courses",
     description: "Learn new skills and improve your knowledge",
     MainIcon: SiCoursera,
     buttons: [
       { label: "Buy Courses", icon: FileText, path: "/user/mycourses" },
     ],
-  },
-  {
+  }, */
+ /*  {
     title: "My Purchases",
     description: "Review your past purchases and access your course materials",
     MainIcon: SiCoursera,
     buttons: [
       { label: "My Purchases", icon: FileText, path: "/user/mypurchases" },
     ],
-  },
-  {
+  }, */
+  /* {
     title: "Purchases Manager",
     description: "Review your pending purchases and manage your transactions",
     MainIcon: SiCoursera,
     buttons: [
       { label: "PurchasesManager", icon: FileText, path: "/user/pendingpurchases" },
     ],
-  }
+  } */
 ];
 
 // 2. Component مخصص للكروت الرئيسية لمنع التكرار

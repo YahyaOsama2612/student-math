@@ -8,6 +8,8 @@ export default function useGet(url) {
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
+    if (!url) return; // 👈 حماية لمنع الطلبات العشوائية لـ baseURL
+
     try {
       setLoading(true);
       const res = await api.get(url);
@@ -28,8 +30,10 @@ export default function useGet(url) {
   }, [url]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (url) {
+      fetchData();
+    }
+  }, [fetchData, url]);
 
   return { data, loading, error, refetch: fetchData };
 }
