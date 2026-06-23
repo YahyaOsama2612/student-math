@@ -1,107 +1,120 @@
-import React, { useState } from 'react';
-import { Search, Play, CheckCircle, Clock, BookOpen, ChevronRight, ChevronLeft, ArrowLeft, LayoutGrid } from 'lucide-react';
-import ActiveExam from './ActiveExam';
-
-
-const generateQuestions = (count) => {
-  const questions = [];
-
-  for (let i = 1; i <= count; i++) {
-    questions.push({
-      id: `q${i}`,
-      text: `Sample Math Question ${i}: What is ${i} + ${i}?`,
-      options: [
-        `${i}`,
-        `${i * 2}`,
-        `${i + 1}`,
-        `${i * 3}`
-      ],
-      correctAnswer: `${i * 2}`
-    });
-  }
-
-  return questions;
-};
-
-export const mockExams = [
-  {
-    id: 1,
-    title: "SAT Practice Test 1 - Math",
-    description: "Official full-length practice test for the Digital SAT.",
-    status: "new",
-    questionsCount: 50,
-    duration: "134 mins",
-    questions: generateQuestions(50)
-  },
-  {
-    id: 2,
-    title: "SAT Practice Test 2 - Math",
-    description: "Advanced SAT math practice exam.",
-    status: "new",
-    questionsCount: 50,
-    duration: "134 mins",
-    questions: generateQuestions(50)
-  }
-];
+import React, { useState, useMemo, useEffect } from "react";
+import { Play } from "lucide-react";
+import Swal from "sweetalert2"; // تم إضافة SweetAlert2 للتنبيهات
+import useGet from "../../hooks/useGet";
+import usePost from "../../hooks/usePost";
+import ActiveExam from "./ActiveExam";
 
 const Exams = () => {
+  const { data: response, loading, error } = useGet("api/user/exams");
+  const { postData } = usePost("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [filter, setFilter] = useState("all");
   const [activeExam, setActiveExam] = useState(null);
+  const [activeTab, setActiveTab] = useState("");
+
+  // استخراج التبويبات الفريدة
+  const tabs = useMemo(() => {
+    if (!response?.data?.courses) return [];
+    const codes = new Set();
+    response.data.courses.forEach((course) => {
+      course.exams.forEach((exam) => {
+        if (exam.codeName) codes.add(exam.codeName);
+      });
+    });
+    return Array.from(codes);
+  }, [response]);
+
+  useEffect(() => {
+    if (tabs.length > 0 && !activeTab) {
+      setActiveTab(tabs[0]);
+    }
+  }, [tabs, activeTab]);
+
+  // دالة البدء التي تتصل بالسيرفر
+  const handleStartExam = async (exam) => {
+    try {
+      // إرسال طلب البدء للسيرفر
+      const res = await postData(
+        {},
+        `/api/user/exams/${exam.id}/start`,
+        "start",
+      );
+
+      if (res?.success || res?.status === 200) {
+        // تمرير الـ attemptId القادم من السيرفر إلى مكون ActiveExam
+        setActiveExam({ ...exam, attemptId: res.data.attemptId });
+      } else {
+        Swal.fire("Error", "Could not start the exam", "error");
+      }
+    } catch (err) {
+      Swal.fire("Error", "Failed to connect to server", "error");
+    }
+  };
 
   if (activeExam) {
     return <ActiveExam exam={activeExam} onExit={() => setActiveExam(null)} />;
   }
 
-  const filteredExams = mockExams.filter(exam => {
-    const matchesSearch = exam.title.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filter === "all" || exam.status === filter;
-    return matchesSearch && matchesFilter;
-  });
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+
+  const courses = response?.data?.courses || [];
 
   return (
-    <div className="min-h-screen w-screen bg-gray-50 p-8 font-sans">
-      <div className=" mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Practice Tests</h1>
-            <p className="text-gray-500 mt-1">Select a test to start practicing.</p>
-          </div>
-          <div className="relative w-full ">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input 
-              type="text" 
-              placeholder="Search tests..." 
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-one/50"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+    <div className="min-h-screen bg-gray-50 p-8 font-sans">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">
+          Practice Tests
+        </h1>
+
+        {/* التبات (Tabs) */}
+        <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${
+                activeTab === tab
+                  ? "bg-one text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
 
+        {/* عرض الامتحانات */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredExams.map((exam) => (
-            <div key={exam.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-one/10 rounded-lg text-one">
-                  <BookOpen className="w-6 h-6" />
+          {courses.map((course) =>
+            course.exams
+              .filter(
+                (exam) =>
+                  exam.codeName === activeTab &&
+                  exam.title.toLowerCase().includes(searchTerm.toLowerCase()),
+              )
+              .map((exam) => (
+                <div
+                  key={exam.id}
+                  className="bg-white rounded-xl shadow-sm border p-6 hover:shadow-md transition-shadow"
+                >
+                  <h2 className="text-xl font-bold mb-2">{exam.title}</h2>
+                  <p className="text-gray-500 text-sm mb-4">
+                    {exam.description}
+                  </p>
+                  <button
+                    onClick={() => handleStartExam(exam)}
+                    className="w-full flex justify-center items-center bg-one text-white py-2 rounded-lg hover:bg-opacity-90 transition-all"
+                  >
+                    <Play className="w-4 h-4 mr-2" /> Start Test
+                  </button>
                 </div>
-              </div>
-              <h2 className="text-xl font-bold text-gray-800 mb-2">{exam.title}</h2>
-              <p className="text-gray-500 text-sm mb-6 flex-grow">{exam.description}</p>
-              <button 
-                onClick={() => setActiveExam(exam)}
-                className="w-full flex justify-center items-center bg-one hover:bg-one/80 text-white font-semibold py-3 rounded-lg transition-colors cursor-pointer"
-              >
-                <Play className="w-4 h-4 mr-2" fill="currentColor" />
-                Start Test
-              </button>
-            </div>
-          ))}
+              )),
+          )}
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default Exams;

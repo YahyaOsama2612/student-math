@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"; // أضفنا useEffect
+import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -12,10 +12,10 @@ import {
   LayoutGrid,
   Calculator,
   LineChart as LineChartIcon,
-  X, // أضفنا أيقونة الإغلاق
+  X,
 } from "lucide-react";
 import usePost from "@/hooks/usePost";
-import Swal from "sweetalert2"; // Make sure to install: npm install sweetalert2
+import Swal from "sweetalert2";
 import { BiMath } from "react-icons/bi";
 
 import Scientific from "../../components/Desmos/Scientific";
@@ -31,8 +31,8 @@ import { MdOutline3dRotation } from "react-icons/md";
 
 import { useLocation, useNavigate } from "react-router-dom";
 
-
-const ActiveExam = () => {
+// أضفنا هنا onExit المستقبلة من المكون الأب لتقوم بإغلاق الامتحان
+const ActiveExam = ({ onExit }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const {
@@ -61,7 +61,7 @@ const ActiveExam = () => {
   const question = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
-  // 2. منطق العداد الزمني
+  // منطق العداد الزمني
   useEffect(() => {
     if (timeLeft <= 0) return;
     const timer = setInterval(() => {
@@ -69,6 +69,15 @@ const ActiveExam = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+
+  const handleBack = () => {
+    if (onExit) {
+      onExit();
+    } else {
+      navigate(-1);
+    }
+  };
 
   // دالة لتحويل الثواني إلى تنسيق 00:00
   const formatTime = (seconds) => {
@@ -82,7 +91,6 @@ const ActiveExam = () => {
   };
 
   const handleSubmit = async () => {
-    // 1. فلترة الإجابات الفاضية وحساب العدد
     const validAnswers = Object.entries(answers).filter(
       ([_, value]) => value && value.toString().trim() !== "",
     );
@@ -90,7 +98,6 @@ const ActiveExam = () => {
     const answeredCount = validAnswers.length;
     const unansweredCount = questions.length - answeredCount;
 
-    // 2. التحقق من الأسئلة اللي ماتحلتش
     if (unansweredCount > 0) {
       const result = await Swal.fire({
         title: "Submit Exam?",
@@ -106,7 +113,6 @@ const ActiveExam = () => {
       if (!result.isConfirmed) return;
     }
 
-    // 3. بناء الداتا بالشكل المطلوب بالظبط (answerId للـ MCQ و textValue للـ Grid in)
     const formattedAnswers = validAnswers.map(([questionId, value]) => {
       const questionObj = questions.find((q) => q.id === questionId);
 
@@ -117,19 +123,16 @@ const ActiveExam = () => {
         };
       }
 
-      // الديفولت أو لو النوع Grid in
       return {
         questionId: questionId,
         textValue: value.toString(),
       };
     });
 
-    // ده الـ Payload النهائي اللي هيتبعت
     const payload = {
       answers: formattedAnswers,
     };
 
-    // 4. إرسال الداتا للـ API
     try {
       const res = await postData(
         payload,
@@ -137,12 +140,11 @@ const ActiveExam = () => {
         "Exam submitted successfully!",
       );
 
-      // التعديل هنا 👇
       await Swal.fire({
         title: "Well done! 🎉",
         text: "Your exam has been submitted. Let’s review your answers.",
         icon: "success",
-        confirmButtonText: "Let's Review", // غيرنا نص الزرار
+       // confirmButtonText: "Let's Review",
         confirmButtonColor: "#4f46e5",
       });
 
@@ -171,15 +173,26 @@ const ActiveExam = () => {
         <Errorpage />
       </div>
     );
+
   if (questions.length === 0)
     return (
-      <div className="h-screen flex items-center justify-center text-sm">
-        No questions found.
+      <div className="w-screen h-screen bg-gray-50 flex flex-col font-sans p-4 relative">
+        <div className="w-full flex justify-start">
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-2 text-gray-400 hover:text-gray-900 transition-colors font-medium text-sm"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+          <span>No questions found.</span>
+        </div>
       </div>
     );
 
   return (
-    <div className="bg-gray-50 flex flex-col items-center relative w-screen overflow-x-hidden font-sans pb-4">
+    <div className="bg-gray-50 flex flex-col items-center relative w-screen overflow-x-hidden font-sans pb-4 px-4 pt-4">
       {/* --- نافذة تكبير الصورة (Full Screen Image) --- */}
       {isImageZoomed && question.image && (
         <div
@@ -216,11 +229,12 @@ const ActiveExam = () => {
         />
       )}
 
-     {showGraph && (
+      {showGraph && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
             <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Graphing Tool
+              <LineChartIcon size={14} className="text-purple-600" /> Graphing
+              Tool
             </span>
             <button
               onClick={() => setShowGraph(false)}
@@ -229,7 +243,6 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <GraphViewer />
           </div>
@@ -240,7 +253,8 @@ const ActiveExam = () => {
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
             <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Scientific Tool
+              <LineChartIcon size={14} className="text-purple-600" /> Scientific
+              Tool
             </span>
             <button
               onClick={() => setShowScientific(false)}
@@ -249,7 +263,6 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <Scientific />
           </div>
@@ -269,7 +282,6 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <D3 />
           </div>
@@ -280,7 +292,8 @@ const ActiveExam = () => {
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
             <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Matrix Tool
+              <LineChartIcon size={14} className="text-purple-600" /> Matrix
+              Tool
             </span>
             <button
               onClick={() => setShowMatrix(false)}
@@ -289,7 +302,6 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <Matrix />
           </div>
@@ -300,7 +312,8 @@ const ActiveExam = () => {
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
             <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Fourfunction Tool
+              <LineChartIcon size={14} className="text-purple-600" />{" "}
+              Fourfunction Tool
             </span>
             <button
               onClick={() => setShowFourfunction(false)}
@@ -309,7 +322,6 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <Fourfunction />
           </div>
@@ -320,7 +332,8 @@ const ActiveExam = () => {
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
             <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Geometry Tool
+              <LineChartIcon size={14} className="text-purple-600" /> Geometry
+              Tool
             </span>
             <button
               onClick={() => setShowGeometry(false)}
@@ -329,89 +342,85 @@ const ActiveExam = () => {
               <X size={18} />
             </button>
           </div>
-          {/* تمت إضافة overflow-y-auto هنا */}
           <div className="flex-1 overflow-y-auto">
             <Geometry />
           </div>
         </div>
       )}
-      {/* --- Header --- */}
-     <div className="w-full bg-white border-b border-gray-200 px-2 md:px-4 py-2 flex justify-between items-center sticky top-0 z-30 shadow-sm">
-  {/* الجزء الأيسر: زر الرجوع والعنوان */}
-  <div onClick={() => navigate(-1)} className="flex items-center gap-2 cursor-pointer shrink-0 pr-2">
-    <button className="hover:bg-gray-100 p-1.5 rounded-full transition">
-      <ArrowLeft size={18} />
-    </button>
-    <h1 className="font-bold text-gray-700 hidden md:block text-xs whitespace-nowrap">
-      Diagnostic Exam
-    </h1>
-  </div>
 
-  {/* الجزء الأيمن: الأزرار والوقت (متجاوب مع إمكانية التمرير الأفقي للشاشات الصغيرة جداً) */}
-  <div className="flex items-center gap-1.5 md:gap-2 overflow-x-auto scrollbar-hide">
-    <button
-      onClick={() => setShowGraph(!showGraph)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGraph ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <LineChartIcon size={14} />
-      <span className="hidden lg:block">Graph</span>
-    </button>
+     
+      <div className="w-full flex justify-between items-center mb-4 z-30">
+        <button
+          onClick={handleBack}
+          className="flex items-center gap-2 text-gray-400 hover:text-gray-900 transition-colors font-medium text-sm shrink-0"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
 
-    <button
-      onClick={() => setShowScientific(!showScientific)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showScientific ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <TbMathOff size={14} />
-      <span className="hidden lg:block">Scientific</span>
-    </button>
+        {/* الجزء الأيمن: أدوات الـ Desmos والوقت */}
+        <div className="flex items-center gap-1.5 md:gap-2 overflow-x-auto scrollbar-hide">
+          <button
+            onClick={() => setShowGraph(!showGraph)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGraph ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <LineChartIcon size={14} />
+            <span className="hidden lg:block">Graph</span>
+          </button>
 
-    <button
-      onClick={() => setShowMatrix(!showMatrix)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showMatrix ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <TbMatrix size={14} />
-      <span className="hidden lg:block">Matrix</span>
-    </button>
+          <button
+            onClick={() => setShowScientific(!showScientific)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showScientific ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <TbMathOff size={14} />
+            <span className="hidden lg:block">Scientific</span>
+          </button>
 
-    <button
-      onClick={() => setShowFourfunction(!showFourfunction)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showFourfunction ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <BiMath size={14} />
-      <span className="hidden lg:block">Fourfunction</span>
-    </button>
+          <button
+            onClick={() => setShowMatrix(!showMatrix)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showMatrix ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <TbMatrix size={14} />
+            <span className="hidden lg:block">Matrix</span>
+          </button>
 
-    <button
-      onClick={() => setShowGeometry(!showGeometry)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGeometry ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <TbGeometry size={14} />
-      <span className="hidden lg:block">Geometry</span>
-    </button>
+          <button
+            onClick={() => setShowFourfunction(!showFourfunction)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showFourfunction ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <BiMath size={14} />
+            <span className="hidden lg:block">Fourfunction</span>
+          </button>
 
-    <button
-      onClick={() => setShowD3(!showD3)}
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showD3 ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-    >
-      <MdOutline3dRotation size={14} />
-      <span className="hidden lg:block">3D</span>
-    </button>
+          <button
+            onClick={() => setShowGeometry(!showGeometry)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGeometry ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <TbGeometry size={14} />
+            <span className="hidden lg:block">Geometry</span>
+          </button>
 
-    {/* عداد الوقت الديناميكي */}
-    <div
-      className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg font-black border text-[11px] transition-colors ${timeLeft < 300 ? "bg-red-50 text-red-600 border-red-200" : "bg-one/10 text-one border-one/20"}`}
-    >
-      <Clock
-        size={14}
-        className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
-      />
-      {formatTime(timeLeft)}
-    </div>
-  </div>
-</div>
+          <button
+            onClick={() => setShowD3(!showD3)}
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showD3 ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+          >
+            <MdOutline3dRotation size={14} />
+            <span className="hidden lg:block">3D</span>
+          </button>
+
+          <div
+            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg font-black border text-[11px] transition-colors ${timeLeft < 300 ? "bg-red-50 text-red-600 border-red-200" : "bg-one/10 text-one border-one/20"}`}
+          >
+            <Clock
+              size={14}
+              className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
+            />
+            {formatTime(timeLeft)}
+          </div>
+        </div>
+      </div>
 
       {/* Main Container */}
-      <div className="w-full p-2 md:p-4 flex flex-col gap-3">
+      <div className="w-full flex flex-col gap-3">
         {/* Navigator */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
           <div className="flex items-center gap-2 mb-2 font-bold text-gray-400 uppercase text-[9px] tracking-widest">
@@ -454,7 +463,7 @@ const ActiveExam = () => {
               <div className="flex-1 flex justify-center lg:justify-end">
                 <div
                   className="bg-gray-50 rounded-lg p-1.5 border border-gray-100 w-full max-w-[300px] cursor-zoom-in group relative overflow-hidden"
-                  onClick={() => setIsImageZoomed(true)} // تفعيل التكبير عند الضغط
+                  onClick={() => setIsImageZoomed(true)}
                 >
                   <img
                     src={question.image}
@@ -486,7 +495,7 @@ const ActiveExam = () => {
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {question.options.map((opt, idx) => {
+                {question.options?.map((opt, idx) => {
                   const isSelected = answers[question.id] === opt.id;
                   const labelLetter = String.fromCharCode(65 + idx);
 
