@@ -31,10 +31,173 @@ import { MdOutline3dRotation } from "react-icons/md";
 
 import { useLocation, useNavigate } from "react-router-dom";
 
+// ─── GridInInput Component ───────────────────────────────────────────────────
+const evaluateExpression = (expr) => {
+  if (!expr || expr.trim() === "") return "";
+  try {
+    if (!/^[\d\s\+\-\*\/\.\(\)]+$/.test(expr.trim())) return "—";
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + expr + ")")();
+    if (!isFinite(result)) return "—";
+    return parseFloat(result.toFixed(6)).toString();
+  } catch {
+    return "—";
+  }
+};
+
+const GridInInput = ({ value, onChange }) => {
+  const [activeTab, setActiveTab] = useState("keyboard");
+  const inputRef = React.useRef(null);
+
+  const insertAtCursor = (char) => {
+    const input = inputRef.current;
+    if (!input) {
+      onChange(value + char);
+      return;
+    }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const newVal = value.slice(0, start) + char + value.slice(end);
+    onChange(newVal);
+    requestAnimationFrame(() => {
+      input.setSelectionRange(start + char.length, start + char.length);
+      input.focus();
+    });
+  };
+
+  const deleteLast = () => {
+    const input = inputRef.current;
+    if (!input) {
+      onChange(value.slice(0, -1));
+      return;
+    }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    if (start !== end) {
+      const newVal = value.slice(0, start) + value.slice(end);
+      onChange(newVal);
+      requestAnimationFrame(() => input.setSelectionRange(start, start));
+    } else if (start > 0) {
+      const newVal = value.slice(0, start - 1) + value.slice(start);
+      onChange(newVal);
+      requestAnimationFrame(() =>
+        input.setSelectionRange(start - 1, start - 1),
+      );
+    }
+  };
+
+  const clearAll = () => onChange("");
+
+  const keys = [
+    ["7", "8", "9"],
+    ["4", "5", "6"],
+    ["1", "2", "3"],
+    ["0", ".", "/"],
+    ["-", "(", ")"],
+  ];
+
+  const preview = evaluateExpression(value);
+
+  return (
+    <div className="flex flex-col gap-3 max-w-[280px]">
+      <input
+        ref={inputRef}
+        type="text"
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Answer..."
+        className="w-full bg-gray-50 p-2 text-lg font-black text-one border border-gray-200 rounded-lg focus:border-one focus:bg-white outline-none"
+      />
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <button
+          onClick={() => setActiveTab("keyboard")}
+          className={`flex-1 py-1 rounded-md text-[11px] font-bold transition-all ${
+            activeTab === "keyboard"
+              ? "bg-white text-one shadow-sm"
+              : "text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          ⌨️ Keyboard
+        </button>
+        <button
+          onClick={() => setActiveTab("preview")}
+          className={`flex-1 py-1 rounded-md text-[11px] font-bold transition-all ${
+            activeTab === "preview"
+              ? "bg-white text-one shadow-sm"
+              : "text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          👁 Preview
+        </button>
+      </div>
+      {activeTab === "keyboard" && (
+        <div className="flex flex-col gap-1">
+          {keys.map((row, ri) => (
+            <div key={ri} className="flex gap-1">
+              {row.map((k) => (
+                <button
+                  key={k}
+                  onClick={() => insertAtCursor(k)}
+                  className="flex-1 h-9 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-one hover:text-white hover:border-one transition-all active:scale-95"
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          ))}
+          <div className="flex gap-1 mt-1">
+            <button
+              onClick={deleteLast}
+              className="flex-1 h-9 bg-red-50 border border-red-100 rounded-lg text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-95"
+            >
+              ⌫ Del
+            </button>
+            <button
+              onClick={clearAll}
+              className="flex-1 h-9 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-400 hover:bg-gray-200 transition-all active:scale-95"
+            >
+              ✕ Clear
+            </button>
+          </div>
+        </div>
+      )}
+      {activeTab === "preview" && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col gap-2">
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              Expression
+            </span>
+            <span className="text-sm font-black text-gray-700 font-mono">
+              {value || "—"}
+            </span>
+          </div>
+          <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              Value
+            </span>
+            <span
+              className={`text-lg font-black font-mono ${preview === "—" ? "text-gray-300" : "text-one"}`}
+            >
+              {preview || "—"}
+            </span>
+          </div>
+          {value.includes("/") && preview !== "—" && (
+            <p className="text-[10px] text-gray-400 mt-1">
+              <span className="font-bold">{value}</span> = {preview}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // أضفنا هنا onExit المستقبلة من المكون الأب لتقوم بإغلاق الامتحان
 const ActiveExam = ({ onExit }) => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
   const {
     data: apiResponse,
     loading,
@@ -61,6 +224,16 @@ const ActiveExam = ({ onExit }) => {
   const question = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
+  const getNavButtonSize = (count) => {
+    if (count <= 10) return "w-10 h-10 text-sm";
+    if (count <= 20) return "w-9 h-9 text-[12px]";
+    if (count <= 40) return "w-7 h-7 text-[11px]";
+    if (count <= 60) return "w-6 h-6 text-[10px]";
+    return "w-5 h-5 text-[9px]";
+  };
+
+  const navBtnSize = getNavButtonSize(questions.length);
+
   // منطق العداد الزمني
   useEffect(() => {
     if (timeLeft <= 0) return;
@@ -69,7 +242,6 @@ const ActiveExam = ({ onExit }) => {
     }, 1000);
     return () => clearInterval(timer);
   }, [timeLeft]);
-
 
   const handleBack = () => {
     if (onExit) {
@@ -144,7 +316,7 @@ const ActiveExam = ({ onExit }) => {
         title: "Well done! 🎉",
         text: "Your exam has been submitted. Let’s review your answers.",
         icon: "success",
-       // confirmButtonText: "Let's Review",
+        // confirmButtonText: "Let's Review",
         confirmButtonColor: "#4f46e5",
       });
 
@@ -348,7 +520,6 @@ const ActiveExam = ({ onExit }) => {
         </div>
       )}
 
-     
       <div className="w-full flex justify-between items-center mb-4 z-30">
         <button
           onClick={handleBack}
@@ -358,63 +529,97 @@ const ActiveExam = ({ onExit }) => {
         </button>
 
         {/* الجزء الأيمن: أدوات الـ Desmos والوقت */}
-        <div className="flex items-center gap-1.5 md:gap-2 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 relative">
+          {/* أضفنا الزر هنا ليظهر بجانب الأدوات */}
           <button
-            onClick={() => setShowGraph(!showGraph)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGraph ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
+            onClick={() => setIsToolsOpen(!isToolsOpen)}
+            className="bg-one text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all z-40"
           >
-            <LineChartIcon size={14} />
-            <span className="hidden lg:block">Graph</span>
+            <LayoutGrid size={16} /> Tools
           </button>
 
-          <button
-            onClick={() => setShowScientific(!showScientific)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showScientific ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-          >
-            <TbMathOff size={14} />
-            <span className="hidden lg:block">Scientific</span>
-          </button>
+          {/* قائمة الأدوات المنسدلة */}
+          {isToolsOpen && (
+            <div
+              className="absolute top-full right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[100] p-2 flex flex-col animate-in fade-in zoom-in-95 duration-200"
+              style={{ maxHeight: "calc(100vh - 100px)", overflowY: "auto" }}
+            >
+              <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                Available Tools
+              </div>
 
-          <button
-            onClick={() => setShowMatrix(!showMatrix)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showMatrix ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-          >
-            <TbMatrix size={14} />
-            <span className="hidden lg:block">Matrix</span>
-          </button>
-
-          <button
-            onClick={() => setShowFourfunction(!showFourfunction)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showFourfunction ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-          >
-            <BiMath size={14} />
-            <span className="hidden lg:block">Fourfunction</span>
-          </button>
-
-          <button
-            onClick={() => setShowGeometry(!showGeometry)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showGeometry ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-          >
-            <TbGeometry size={14} />
-            <span className="hidden lg:block">Geometry</span>
-          </button>
-
-          <button
-            onClick={() => setShowD3(!showD3)}
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg border transition-all font-bold text-[11px] ${showD3 ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-100 text-gray-600"}`}
-          >
-            <MdOutline3dRotation size={14} />
-            <span className="hidden lg:block">3D</span>
-          </button>
-
+              {[
+                {
+                  name: "Graph",
+                  state: showGraph,
+                  setter: setShowGraph,
+                  icon: <LineChartIcon size={16} />,
+                },
+                {
+                  name: "Scientific",
+                  state: showScientific,
+                  setter: setShowScientific,
+                  icon: <TbMathOff size={16} />,
+                },
+                {
+                  name: "Matrix",
+                  state: showMatrix,
+                  setter: setShowMatrix,
+                  icon: <TbMatrix size={16} />,
+                },
+                {
+                  name: "Fourfunction",
+                  state: showFourfunction,
+                  setter: setShowFourfunction,
+                  icon: <BiMath size={16} />,
+                },
+                {
+                  name: "Geometry",
+                  state: showGeometry,
+                  setter: setShowGeometry,
+                  icon: <TbGeometry size={16} />,
+                },
+                {
+                  name: "3D",
+                  state: showD3,
+                  setter: setShowD3,
+                  icon: <MdOutline3dRotation size={16} />,
+                },
+              ].map((tool) => (
+                <button
+                  key={tool.name}
+                  onClick={() => {
+                    tool.setter(!tool.state);
+                    setIsToolsOpen(false);
+                  }}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+                    tool.state
+                      ? "bg-purple-600 text-white shadow-md"
+                      : "hover:bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  <span className={tool.state ? "text-white" : "text-gray-400"}>
+                    {tool.icon}
+                  </span>
+                  {tool.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div
-            className={`flex shrink-0 items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-lg font-black border text-[11px] transition-colors ${timeLeft < 300 ? "bg-red-50 text-red-600 border-red-200" : "bg-one/10 text-one border-one/20"}`}
+            className={`flex shrink-0 items-center gap-3 px-6 py-3 rounded-2xl font-black border-2 text-lg shadow-sm transition-colors ${
+              timeLeft < 300
+                ? "bg-red-50 text-red-600 border-red-200"
+                : "bg-white text-one border-one/20"
+            }`}
           >
             <Clock
-              size={14}
+              size={22}
               className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
             />
-            {formatTime(timeLeft)}
+            <span className="tabular-nums tracking-widest text-xl">
+              {formatTime(timeLeft)}
+            </span>
           </div>
         </div>
       </div>
@@ -422,16 +627,16 @@ const ActiveExam = ({ onExit }) => {
       {/* Main Container */}
       <div className="w-full flex flex-col gap-3">
         {/* Navigator */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 w-fit">
           <div className="flex items-center gap-2 mb-2 font-bold text-gray-400 uppercase text-[9px] tracking-widest">
             <LayoutGrid size={12} className="text-one" /> Questions
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1 w-fit">
             {questions?.map((q, index) => (
               <button
                 key={q.id}
                 onClick={() => setCurrentQuestionIndex(index)}
-                className={`w-7 h-7 rounded-md font-bold transition-all text-[11px] ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${answers[q.id] ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
+                className={`${navBtnSize} rounded-md font-bold transition-all ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${answers[q.id] ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
               >
                 {index + 1}
               </button>
@@ -483,16 +688,10 @@ const ActiveExam = ({ onExit }) => {
           {/* Answers */}
           <div className="mt-auto">
             {question.answerType === "Grid in" ? (
-              <div className="max-w-[200px]">
-                <input
-                  type="text"
-                  autoFocus
-                  value={answers[question.id] || ""}
-                  onChange={(e) => handleAnswerChange(e.target.value)}
-                  placeholder="Answer..."
-                  className="w-full bg-gray-50 p-2 text-lg font-black text-one border border-gray-200 rounded-lg focus:border-one focus:bg-white outline-none"
-                />
-              </div>
+              <GridInInput
+                value={answers[question.id] || ""}
+                onChange={handleAnswerChange}
+              />
             ) : (
               <div className="flex flex-wrap gap-2">
                 {question.options?.map((opt, idx) => {

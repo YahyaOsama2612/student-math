@@ -3,23 +3,25 @@ import { useParams } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const Review = () => {
   const { attemptId } = useParams();
   const [expandedRow, setExpandedRow] = useState(null);
 
   const { data, loading, error } = useGet(
-    `/api/user/diagnostic-exams/attempts/${attemptId}/review`
+    `/api/user/diagnostic-exams/attempts/${attemptId}/review`,
   );
 
   // 🔹 Handle different API shapes safely
   const questions = Array.isArray(data?.data?.data)
     ? data.data.data
     : Array.isArray(data?.data)
-    ? data.data
-    : Array.isArray(data)
-    ? data
-    : [];
+      ? data.data
+      : Array.isArray(data)
+        ? data
+        : [];
 
   if (loading) return <Loader />;
   if (error) return <Errorpage />;
@@ -55,13 +57,102 @@ const Review = () => {
       setExpandedRow(num - 1);
     }
   };
+  const getStudentAnswer = (q) => {
+    const isMCQ = q.answerType === "MCQ";
 
+    if (isMCQ) {
+      return q.studentSubmittedMCQId
+        ? q.isCorrect
+          ? q.correctAnswers?.[0]?.answerText
+          : "Wrong Answer"
+        : "Unanswered";
+    }
+
+    return q.studentSubmittedGridInText || "Unanswered";
+  };
+
+  const getCorrectAnswer = (q) => {
+    const isMCQ = q.answerType === "MCQ";
+
+    return isMCQ
+      ? q.correctAnswers?.[0]?.answerText
+      : q.correctAnswers?.map((a) => a.answerText).join(" or ");
+  };
+  const questionsReport = questions.map((q, index) => ({
+    No: index + 1,
+    Question: q.questionText.replace(/<[^>]*>/g, ""),
+  }));
+  const qaReport = questions.map((q, index) => ({
+    No: index + 1,
+    Question: q.questionText.replace(/<[^>]*>/g, ""),
+    StudentAnswer: getStudentAnswer(q),
+    CorrectAnswer: getCorrectAnswer(q),
+    Result: q.isCorrect ? "Correct" : "Wrong",
+  }));
+  const downloadQuestionsReport = () => {
+    const doc = new jsPDF();
+
+    doc.setFontSize(16);
+    doc.text("Questions Report", 14, 15);
+
+    autoTable(doc, {
+      head: [["#", "Question"]],
+      body: questions.map((q, index) => [
+        index + 1,
+        q.questionText.replace(/<[^>]*>/g, ""),
+      ]),
+      startY: 25,
+    });
+
+    doc.save(`questions-report-${attemptId}.pdf`);
+  };
+
+  const downloadQuestionsAnswersReport = () => {
+    const doc = new jsPDF();
+
+    doc.setFontSize(16);
+    doc.text("Questions & Answers Report", 14, 15);
+
+    autoTable(doc, {
+      head: [["#", "Question", "Student Answer", "Correct Answer", "Result"]],
+      body: questions.map((q, index) => [
+        index + 1,
+        q.questionText.replace(/<[^>]*>/g, ""),
+        getStudentAnswer(q),
+        getCorrectAnswer(q),
+        q.isCorrect ? "Correct" : "Wrong",
+      ]),
+      startY: 25,
+      styles: {
+        cellWidth: "wrap",
+        overflow: "linebreak",
+      },
+      columnStyles: {
+        1: { cellWidth: 70 }, // Question column
+      },
+    });
+
+    doc.save(`questions-answers-report-${attemptId}.pdf`);
+  };
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      <div className="flex gap-3 mb-6">
+        <button
+          onClick={downloadQuestionsReport}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Download Questions
+        </button>
 
+        <button
+          onClick={downloadQuestionsAnswersReport}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+        >
+          Download Q&A Report
+        </button>
+      </div>
       {/* 🔥 Summary */}
       <div className="flex flex-col md:flex-row gap-6 mb-8">
-        
         {/* Correct */}
         <div className="flex-1 border border-green-200 bg-green-50 p-6 rounded-xl shadow-sm">
           <h3 className="text-green-800 font-bold text-lg mb-4">
@@ -164,16 +255,14 @@ const Review = () => {
               {/* Answers */}
               <div className="grid md:grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="font-semibold text-slate-600">
-                    Your Answer:
-                  </p>
+                  <p className="font-semibold text-slate-600">Your Answer:</p>
                   <p
                     className={`mt-1 ${
                       yourAnswer === "Unanswered"
                         ? "text-gray-400"
                         : isCorrect
-                        ? "text-green-700 font-medium"
-                        : "text-red-600 font-medium"
+                          ? "text-green-700 font-medium"
+                          : "text-red-600 font-medium"
                     }`}
                   >
                     {yourAnswer}
