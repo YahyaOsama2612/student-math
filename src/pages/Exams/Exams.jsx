@@ -4,6 +4,7 @@ import Swal from "sweetalert2"; // تم إضافة SweetAlert2 للتنبيها�
 import useGet from "../../hooks/useGet";
 import usePost from "../../hooks/usePost";
 import ActiveExam from "./ActiveExam";
+import { useNavigate } from "react-router-dom";
 
 const Exams = () => {
   const { data: response, loading, error } = useGet("api/user/exams");
@@ -11,6 +12,7 @@ const Exams = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeExam, setActiveExam] = useState(null);
   const [activeTab, setActiveTab] = useState("");
+  const navigate = useNavigate();
 
   // استخراج التبويبات الفريدة
   const tabs = useMemo(() => {
@@ -47,7 +49,8 @@ const Exams = () => {
         Swal.fire("Error", "Could not start the exam", "error");
       }
     } catch (err) {
-      Swal.fire("Error", "Failed to connect to server", "error");
+      Swal.fire("Error", "You do not have balance, please try to purchase an exam package.", "error");
+      navigate("/user/payment");
     }
   };
 

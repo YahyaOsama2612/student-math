@@ -14,7 +14,6 @@ const Review = () => {
     `/api/user/diagnostic-exams/attempts/${attemptId}/review`,
   );
 
-  // 🔹 Handle different API shapes safely
   const questions = Array.isArray(data?.data?.data)
     ? data.data.data
     : Array.isArray(data?.data)
@@ -34,7 +33,6 @@ const Review = () => {
     );
   }
 
-  // ✅ استخدام isCorrect من الـ API مباشرة
   const correctQuestions = [];
   const incorrectQuestions = [];
 
@@ -57,9 +55,9 @@ const Review = () => {
       setExpandedRow(num - 1);
     }
   };
+
   const getStudentAnswer = (q) => {
     const isMCQ = q.answerType === "MCQ";
-
     if (isMCQ) {
       return q.studentSubmittedMCQId
         ? q.isCorrect
@@ -67,34 +65,20 @@ const Review = () => {
           : "Wrong Answer"
         : "Unanswered";
     }
-
     return q.studentSubmittedGridInText || "Unanswered";
   };
 
   const getCorrectAnswer = (q) => {
     const isMCQ = q.answerType === "MCQ";
-
     return isMCQ
       ? q.correctAnswers?.[0]?.answerText
       : q.correctAnswers?.map((a) => a.answerText).join(" or ");
   };
-  const questionsReport = questions.map((q, index) => ({
-    No: index + 1,
-    Question: q.questionText.replace(/<[^>]*>/g, ""),
-  }));
-  const qaReport = questions.map((q, index) => ({
-    No: index + 1,
-    Question: q.questionText.replace(/<[^>]*>/g, ""),
-    StudentAnswer: getStudentAnswer(q),
-    CorrectAnswer: getCorrectAnswer(q),
-    Result: q.isCorrect ? "Correct" : "Wrong",
-  }));
+
   const downloadQuestionsReport = () => {
     const doc = new jsPDF();
-
     doc.setFontSize(16);
     doc.text("Questions Report", 14, 15);
-
     autoTable(doc, {
       head: [["#", "Question"]],
       body: questions.map((q, index) => [
@@ -103,16 +87,13 @@ const Review = () => {
       ]),
       startY: 25,
     });
-
     doc.save(`questions-report-${attemptId}.pdf`);
   };
 
   const downloadQuestionsAnswersReport = () => {
     const doc = new jsPDF();
-
     doc.setFontSize(16);
     doc.text("Questions & Answers Report", 14, 15);
-
     autoTable(doc, {
       head: [["#", "Question", "Student Answer", "Correct Answer", "Result"]],
       body: questions.map((q, index) => [
@@ -123,37 +104,53 @@ const Review = () => {
         q.isCorrect ? "Correct" : "Wrong",
       ]),
       startY: 25,
-      styles: {
-        cellWidth: "wrap",
-        overflow: "linebreak",
-      },
-      columnStyles: {
-        1: { cellWidth: 70 }, // Question column
-      },
+      styles: { cellWidth: "wrap", overflow: "linebreak" },
+      columnStyles: { 1: { cellWidth: 70 } },
     });
-
     doc.save(`questions-answers-report-${attemptId}.pdf`);
   };
+
+  const downloadIncorrectWithRecap = () => {
+    const doc = new jsPDF();
+    doc.text("Incorrect Questions & Recommendations", 14, 15);
+    autoTable(doc, {
+      head: [["#", "Question", "Recap Lesson"]],
+      body: questions
+        .filter((q) => !q.isCorrect)
+        .map((q, index) => [
+          index + 1,
+          q.questionText.replace(/<[^>]*>/g, ""),
+          q.recommendationToRecap?.lessonName || "N/A",
+        ]),
+      startY: 25,
+    });
+    doc.save(`incorrect-recap-${attemptId}.pdf`);
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6">
         <button
           onClick={downloadQuestionsReport}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           Download Questions
         </button>
-
         <button
           onClick={downloadQuestionsAnswersReport}
           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
         >
           Download Q&A Report
         </button>
+        <button
+          onClick={downloadIncorrectWithRecap}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+        >
+          Export Incorrect & Recap
+        </button>
       </div>
-      {/* 🔥 Summary */}
+
       <div className="flex flex-col md:flex-row gap-6 mb-8">
-        {/* Correct */}
         <div className="flex-1 border border-green-200 bg-green-50 p-6 rounded-xl shadow-sm">
           <h3 className="text-green-800 font-bold text-lg mb-4">
             ✅ Correct ({correctQuestions.length})
@@ -170,8 +167,6 @@ const Review = () => {
             ))}
           </div>
         </div>
-
-        {/* Incorrect */}
         <div className="flex-1 border border-red-200 bg-red-50 p-6 rounded-xl shadow-sm">
           <h3 className="text-red-800 font-bold text-lg mb-4">
             ❌ Incorrect ({incorrectQuestions.length})
@@ -190,143 +185,115 @@ const Review = () => {
         </div>
       </div>
 
-      {/* 🔥 Questions Cards بدل Table */}
       <div className="space-y-5">
-        {questions.map((q, index) => {
-          const isMCQ = q.answerType === "MCQ";
-          const correctOption = q.correctAnswers?.[0];
-
-          const isCorrect = q.isCorrect;
-
-          const yourAnswer = isMCQ
-            ? q.studentSubmittedMCQId
-              ? isCorrect
-                ? correctOption?.answerText
-                : "Wrong Answer"
-              : "Unanswered"
-            : q.studentSubmittedGridInText || "Unanswered";
-
-          const correctAnswer = isMCQ
-            ? correctOption?.answerText
-            : q.correctAnswers?.map((a) => a.answerText).join(" or ");
-
-          return (
-            <div
-              key={q.questionId}
-              id={`question-${index + 1}`}
-              className={`p-5 rounded-xl border shadow-sm transition ${
-                isCorrect
-                  ? "bg-green-50 border-green-200"
-                  : "bg-red-50 border-red-200"
-              }`}
-            >
-              {/* Header */}
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="font-bold text-lg text-slate-800">
-                  Question {index + 1}
-                </h3>
-
-                <span
-                  className={`px-3 py-1 text-sm rounded-full font-medium ${
-                    isCorrect
-                      ? "bg-green-200 text-green-800"
-                      : "bg-red-200 text-red-800"
-                  }`}
-                >
-                  {isCorrect ? "Correct" : "Wrong"}
-                </span>
-              </div>
-
-              {/* Question Text */}
-              <div
-                className="mb-4 text-slate-700"
-                dangerouslySetInnerHTML={{ __html: q.questionText }}
-              />
-
-              {/* Image */}
-              {q.questionImage && (
-                <img
-                  src={q.questionImage}
-                  alt="question"
-                  className="w-full max-w-md rounded-lg border mb-4"
-                />
-              )}
-
-              {/* Answers */}
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="font-semibold text-slate-600">Your Answer:</p>
-                  <p
-                    className={`mt-1 ${
-                      yourAnswer === "Unanswered"
-                        ? "text-gray-400"
-                        : isCorrect
-                          ? "text-green-700 font-medium"
-                          : "text-red-600 font-medium"
-                    }`}
-                  >
-                    {yourAnswer}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-semibold text-slate-600">
-                    Correct Answer:
-                  </p>
-                  <p className="text-green-700 font-semibold mt-1">
-                    {correctAnswer}
-                  </p>
-                </div>
-              </div>
-
-              {/* Button */}
-              <button
-                onClick={() => toggleExplanation(index)}
-                className="mt-4 text-sm font-medium text-one hover:underline"
+        {questions.map((q, index) => (
+          <div
+            key={q.questionId}
+            id={`question-${index + 1}`}
+            className={`p-5 rounded-xl border shadow-sm ${q.isCorrect ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
+          >
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-lg text-slate-800">
+                Question {index + 1}
+              </h3>
+              <span
+                className={`px-3 py-1 text-sm rounded-full font-medium ${q.isCorrect ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}
               >
-                {expandedRow === index
-                  ? "Hide explanation"
-                  : "View explanation"}
-              </button>
+                {q.isCorrect ? "Correct" : "Wrong Answer"}
+              </span>
+            </div>
 
-              {/* Explanation */}
-              {expandedRow === index && (
-                <div className="mt-4 p-4 bg-white border rounded-lg shadow-sm">
-                  <h4 className="font-semibold mb-2 text-slate-700">
-                    💡 Explanation
-                  </h4>
+            <div
+              className="mb-4 text-slate-700"
+              dangerouslySetInnerHTML={{ __html: q.questionText }}
+            />
 
-                  {q.explanationContent?.pdf && (
-                    <a
-                      href={q.explanationContent.pdf}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-blue-600 underline mb-2"
-                    >
-                      📄 View PDF
-                    </a>
-                  )}
+            <button
+              onClick={() => toggleExplanation(index)}
+              className="mt-2 px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-all font-semibold shadow-md"
+            >
+              {expandedRow === index ? "Hide explanation" : "View explanation"}
+            </button>
 
-                  {q.explanationContent?.video && (
+            {expandedRow === index && (
+              <div className="mt-4 p-4 bg-white border rounded-lg shadow-inner">
+                <h4 className="font-bold mb-3 text-slate-700 border-b pb-2">
+                  💡 Explanation & Recap
+                </h4>
+
+                {q.explanationContent?.text && (
+                  <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase">
+                      Explanation by Text
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {q.explanationContent.text}
+                    </p>
+                  </div>
+                )}
+                {q.explanationContent?.image && (
+                  <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase">
+                      Explanation by Image
+                    </p>
+                    <img
+                      src={q.explanationContent.image}
+                      className="w-full max-w-xs rounded border"
+                    />
+                  </div>
+                )}
+                {q.explanationContent?.video && (
+                  <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase">
+                      Explanation by Video
+                    </p>
                     <video controls className="w-full rounded">
                       <source
                         src={q.explanationContent.video}
                         type="video/mp4"
                       />
                     </video>
-                  )}
+                  </div>
+                )}
+                {q.explanationContent?.pdf && (
+                  <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase">
+                      Explanation by PDF
+                    </p>
+                    <a
+                      href={q.explanationContent.pdf}
+                      target="_blank"
+                      className="block text-blue-600 underline"
+                    >
+                      View Document
+                    </a>
+                  </div>
+                )}
 
-                  {!q.explanationContent?.pdf &&
-                    !q.explanationContent?.video && (
-                      <p className="text-gray-400 text-sm">
-                        No explanation available.
-                      </p>
-                    )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                {q.recommendationToRecap && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-100 text-sm">
+                    <p className="font-bold text-blue-800">
+                      Recommended Recap:
+                    </p>
+                    <p>Course: {q.recommendationToRecap.courseName}</p>
+                    <p>Chapter: {q.recommendationToRecap.chapterName}</p>
+                    <p>Lesson: {q.recommendationToRecap.lessonName}</p>
+                  </div>
+                )}
+
+                {!q.explanationContent?.text &&
+                  !q.explanationContent?.video &&
+                  !q.explanationContent?.image &&
+                  !q.explanationContent?.pdf &&
+                  !q.recommendationToRecap && (
+                    <p className="text-gray-400 text-sm">
+                      No explanation available.
+                    </p>
+                  )}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

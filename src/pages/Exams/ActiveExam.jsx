@@ -243,7 +243,21 @@ const ActiveExam = ({ onExit }) => {
     return () => clearInterval(timer);
   }, [timeLeft]);
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    const result = await Swal.fire({
+      title: "Leave the exam?",
+      text: "Are you sure you want to go back? You won't be able to re-enter this exam.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#4f46e5",
+      confirmButtonText: "Yes, leave",
+      cancelButtonText: "Stay",
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) return;
+
     if (onExit) {
       onExit();
     } else {
@@ -644,56 +658,69 @@ const ActiveExam = ({ onExit }) => {
           </div>
         </div>
 
-        {/* Question Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 min-h-[380px] flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <span className="text-one font-bold text-[10px] uppercase">
-              Question {currentQuestionIndex + 1}
-            </span>
-            <span className="bg-gray-50 text-gray-400 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-tighter">
-              {question.answerType}
-            </span>
-          </div>
-
-          <div
-            className={`flex flex-col ${question.image ? "lg:flex-row gap-6" : "flex-col"} mb-6`}
-          >
-            <div className="flex-1">
-              <h2 className="text-base md:text-lg font-bold text-gray-800 leading-snug">
-                {question.question}
-              </h2>
+        {/* Question + Your Answer Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3 items-start">
+          {/* Question Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 min-h-[420px] flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-gray-800 font-bold text-sm">
+                Question {currentQuestionIndex + 1}
+              </span>
+              <span className="bg-gray-50 text-gray-400 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-tighter">
+                {question.answerType}
+              </span>
             </div>
 
+            {(!question.image || question.question) && (
+              <h2 className="text-base md:text-lg font-bold text-gray-800 leading-snug mb-4">
+                {question.question}
+              </h2>
+            )}
+
             {question.image && (
-              <div className="flex-1 flex justify-center lg:justify-end">
-                <div
-                  className="bg-gray-50 rounded-lg p-1.5 border border-gray-100 w-full max-w-[300px] cursor-zoom-in group relative overflow-hidden"
-                  onClick={() => setIsImageZoomed(true)}
-                >
-                  <img
-                    src={question.image}
-                    alt="Visual"
-                    className="w-full h-auto max-h-[220px] object-contain rounded-md transition-transform group-hover:scale-[1.02]"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors flex items-center justify-center">
-                    <span className="bg-white/80 px-2 py-1 rounded text-[8px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                      Click to Enlarge
-                    </span>
-                  </div>
+              <div
+                className="bg-white rounded-xl border border-gray-100 p-3 cursor-zoom-in group relative overflow-hidden flex-1 flex items-center justify-center"
+                onClick={() => setIsImageZoomed(true)}
+              >
+                <img
+                  src={question.image}
+                  alt="Visual"
+                  className="w-full h-auto max-h-[420px] object-contain rounded-md transition-transform group-hover:scale-[1.01]"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors flex items-center justify-center">
+                  <span className="bg-white/90 px-2.5 py-1 rounded text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow">
+                    Click to Enlarge
+                  </span>
                 </div>
+              </div>
+            )}
+
+            {/* Grid-in input stays inside the question card on small screens */}
+            {question.answerType === "Grid in" && (
+              <div className="mt-6 lg:hidden">
+                <GridInInput
+                  value={answers[question.id] || ""}
+                  onChange={handleAnswerChange}
+                />
               </div>
             )}
           </div>
 
-          {/* Answers */}
-          <div className="mt-auto">
+          {/* Your Answer Panel */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col gap-3 lg:sticky lg:top-4">
+            <span className="text-gray-800 font-bold text-sm mb-1">
+              Your Answer
+            </span>
+
             {question.answerType === "Grid in" ? (
-              <GridInInput
-                value={answers[question.id] || ""}
-                onChange={handleAnswerChange}
-              />
+              <div className="hidden lg:block">
+                <GridInInput
+                  value={answers[question.id] || ""}
+                  onChange={handleAnswerChange}
+                />
+              </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2.5">
                 {question.options?.map((opt, idx) => {
                   const isSelected = answers[question.id] === opt.id;
                   const labelLetter = String.fromCharCode(65 + idx);
@@ -701,59 +728,80 @@ const ActiveExam = ({ onExit }) => {
                   return (
                     <label
                       key={opt.id}
-                      className={`relative flex items-center gap-2 px-3 py-1.5 border rounded-lg cursor-pointer transition-all min-w-[100px] flex-1 sm:flex-none ${
+                      className={`relative flex items-center gap-3 px-4 py-3 border rounded-xl cursor-pointer transition-all ${
                         isSelected
-                          ? "border-one bg-one text-white"
-                          : "border-gray-100 bg-white hover:border-one/30"
+                          ? "border-one bg-one/5"
+                          : "border-gray-200 bg-white hover:border-one/40"
                       }`}
                     >
                       <input
                         type="radio"
                         checked={isSelected}
                         onChange={() => handleAnswerChange(opt.id)}
-                        className="hidden"
+                        className="sr-only"
                       />
                       <div
-                        className={`w-5 h-5 shrink-0 rounded text-[9px] font-black flex items-center justify-center ${isSelected ? "bg-white text-one" : "bg-gray-100 text-gray-500"}`}
+                        className={`w-5 h-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${
+                          isSelected
+                            ? "border-one bg-one"
+                            : "border-gray-300 bg-white"
+                        }`}
+                      >
+                        {isSelected && (
+                          <div className="w-2 h-2 rounded-full bg-white" />
+                        )}
+                      </div>
+                      <span
+                        className={`text-sm font-semibold ${isSelected ? "text-one" : "text-gray-700"}`}
                       >
                         {labelLetter}
-                      </div>
-                      <span className="text-xs font-medium">{opt.answer}</span>
+                        {opt.answer ? `. ${opt.answer}` : ""}
+                      </span>
                     </label>
                   );
                 })}
               </div>
             )}
           </div>
+        </div>
 
-          {/* Controls */}
-          <div className="flex justify-between items-center mt-6 pt-4 border-t border-gray-50">
+        {/* Controls */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-3 flex justify-between items-center">
+          <button
+            disabled={currentQuestionIndex === 0}
+            onClick={() => setCurrentQuestionIndex((prev) => prev - 1)}
+            className="px-4 py-2 rounded-lg font-bold text-gray-400 text-xs bg-gray-50 hover:bg-gray-100 disabled:opacity-30 flex items-center gap-1"
+          >
+            <ChevronLeft size={14} /> Previous
+          </button>
+
+          <span className="text-xs font-semibold text-gray-500">
+            Questions:{" "}
+            {
+              Object.values(answers).filter(
+                (v) => v && v.toString().trim() !== "",
+              ).length
+            }
+            /{questions.length} answered
+          </span>
+
+          {isLastQuestion ? (
             <button
-              disabled={currentQuestionIndex === 0}
-              onClick={() => setCurrentQuestionIndex((prev) => prev - 1)}
-              className="px-3 py-1.5 rounded-lg font-bold text-gray-400 text-[11px] bg-gray-50 hover:bg-gray-100 disabled:opacity-30 flex items-center gap-1"
+              onClick={handleSubmit}
+              disabled={userLoading}
+              className={`px-6 py-2 rounded-lg font-bold text-white text-xs transition flex items-center gap-1 ${userLoading ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}
             >
-              <ChevronLeft size={14} /> Prev
+              {userLoading ? "Submitting..." : "Submit"}{" "}
+              <CheckCircle size={14} />
             </button>
-
-            {isLastQuestion ? (
-              <button
-                onClick={handleSubmit}
-                disabled={userLoading}
-                className={`px-5 py-1.5 rounded-lg font-bold text-white text-[11px] transition flex items-center gap-1 ${userLoading ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}
-              >
-                {userLoading ? "Submitting..." : "Submit"}{" "}
-                <CheckCircle size={14} />
-              </button>
-            ) : (
-              <button
-                onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
-                className="px-5 py-1.5 rounded-lg font-bold text-white text-[11px] bg-one hover:opacity-90 flex items-center gap-1"
-              >
-                Next <ChevronRight size={14} />
-              </button>
-            )}
-          </div>
+          ) : (
+            <button
+              onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
+              className="px-6 py-2 rounded-lg font-bold text-white text-xs bg-one hover:opacity-90 flex items-center gap-1"
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>
