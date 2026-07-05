@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
-import usePost from "@/hooks/usePost"; 
+import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import {
@@ -32,7 +32,15 @@ const ContentDetails = () => {
     url: "",
     title: "",
   });
+  const modalRef = useRef(null);
 
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      modalRef.current?.requestFullscreen().catch((err) => console.error(err));
+    } else {
+      document.exitFullscreen();
+    }
+  };
   const currentState = location.state?.contentType;
   const contentType =
     currentState === "lessons" ||
@@ -75,8 +83,9 @@ const ContentDetails = () => {
   const chaptersList = isCourseType ? passedChapters : [];
 
   // 2. إذا كنا في شابتر: نأخذ الدروس ونفلترها بناءً على الـ id الخاص بهذا الشابتر
-  const lessonsList = isChapterType 
-    ? (rawData.lessons || passedLessons.filter(ls => (ls.chapterId || ls.chapter?.id) === id))
+  const lessonsList = isChapterType
+    ? rawData.lessons ||
+      passedLessons.filter((ls) => (ls.chapterId || ls.chapter?.id) === id)
     : [];
 
   const ideasList = rawData.ideas || [];
@@ -115,13 +124,20 @@ const ContentDetails = () => {
     <div className="min-w-full min-h-screen p-6 bg-gray-50/50 relative">
       {/* Header Section */}
       <div className="flex items-center gap-4 mb-8">
-        <button onClick={() => navigate(-1)} className="p-2 transition-colors rounded-full hover:bg-gray-200">
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 transition-colors rounded-full hover:bg-gray-200"
+        >
           <ArrowLeft className="w-6 h-6 text-gray-600" />
         </button>
         <div>
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-50 text-blue-700 rounded-md border border-blue-100">
-              {isLessonType ? "Lesson Info" : isChapterType ? "Chapter Info" : "Course Info"}
+              {isLessonType
+                ? "Lesson Info"
+                : isChapterType
+                  ? "Chapter Info"
+                  : "Course Info"}
             </span>
             {rawData.course && (
               <span className="px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-md">
@@ -134,7 +150,9 @@ const ContentDetails = () => {
               </span>
             )}
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{content.name || "Untitled Content"}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {content.name || "Untitled Content"}
+          </h1>
         </div>
       </div>
 
@@ -147,10 +165,16 @@ const ContentDetails = () => {
               <h2 className="text-xl font-bold text-gray-900">About Content</h2>
               <span
                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium ${
-                  rawData.isLocked || content.isLocked ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
+                  rawData.isLocked || content.isLocked
+                    ? "bg-red-50 text-red-700"
+                    : "bg-green-50 text-green-700"
                 }`}
               >
-                {rawData.isLocked || content.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                {rawData.isLocked || content.isLocked ? (
+                  <Lock className="w-3 h-3" />
+                ) : (
+                  <Unlock className="w-3 h-3" />
+                )}
                 {rawData.isLocked || content.isLocked ? "Locked" : "Accessible"}
               </span>
             </div>
@@ -163,8 +187,12 @@ const ContentDetails = () => {
                 <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
                   <GraduationCap className="w-5 h-5 text-gray-400 mt-0.5" />
                   <div>
-                    <p className="text-xs font-medium text-gray-400">Prerequisite</p>
-                    <p className="text-sm font-semibold text-gray-700">{content.preRequisition}</p>
+                    <p className="text-xs font-medium text-gray-400">
+                      Prerequisite
+                    </p>
+                    <p className="text-sm font-semibold text-gray-700">
+                      {content.preRequisition}
+                    </p>
                   </div>
                 </div>
               )}
@@ -173,8 +201,12 @@ const ContentDetails = () => {
                 <div className="flex items-start gap-3 p-3 bg-emerald-50/40 rounded-xl">
                   <Lightbulb className="w-5 h-5 text-emerald-500 mt-0.5" />
                   <div>
-                    <p className="text-xs font-medium text-emerald-600">What you will gain</p>
-                    <p className="text-sm font-semibold text-emerald-800">{content.whatYouGain}</p>
+                    <p className="text-xs font-medium text-emerald-600">
+                      What you will gain
+                    </p>
+                    <p className="text-sm font-semibold text-emerald-800">
+                      {content.whatYouGain}
+                    </p>
                   </div>
                 </div>
               )}
@@ -186,24 +218,31 @@ const ContentDetails = () => {
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <Layers className="w-5 h-5 text-purple-600" />
-                <h3 className="text-lg font-bold text-gray-900">Chapters in this Course ({chaptersList.length})</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Chapters in this Course ({chaptersList.length})
+                </h3>
               </div>
               <div className="divide-y divide-gray-100">
                 {chaptersList.map((chapter, index) => (
-                  <div key={chapter.id} className="flex justify-between items-center py-3.5 gap-4">
+                  <div
+                    key={chapter.id}
+                    className="flex justify-between items-center py-3.5 gap-4"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 flex items-center justify-center bg-purple-50 text-purple-600 font-semibold rounded-lg text-xs">
                         {index + 1}
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">{chapter.name}</span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {chapter.name}
+                      </span>
                     </div>
 
                     <button
                       onClick={() => {
                         navigate(`/user/contentdetails/${chapter.id}`, {
-                          state: { 
+                          state: {
                             contentType: "chapters",
-                            passedLessons: passedLessons 
+                            passedLessons: passedLessons,
                           },
                         });
                       }}
@@ -223,16 +262,23 @@ const ContentDetails = () => {
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <BookOpen className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-bold text-gray-900">Lessons in this Chapter ({lessonsList.length})</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Lessons in this Chapter ({lessonsList.length})
+                </h3>
               </div>
               <div className="divide-y divide-gray-100">
                 {lessonsList.map((lesson) => (
-                  <div key={lesson.id} className="flex justify-between items-center py-3.5 gap-4">
+                  <div
+                    key={lesson.id}
+                    className="flex justify-between items-center py-3.5 gap-4"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 flex items-center justify-center bg-blue-50 text-blue-600 font-semibold rounded-lg text-xs">
                         {lesson.order || 1}
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">{lesson.name}</span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {lesson.name}
+                      </span>
                     </div>
 
                     <button
@@ -257,25 +303,42 @@ const ContentDetails = () => {
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <Sparkles className="w-5 h-5 text-amber-500" />
-                <h3 className="text-lg font-bold text-gray-900">Covered Ideas ({ideasList.length})</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Covered Ideas ({ideasList.length})
+                </h3>
               </div>
               <div className="grid grid-cols-1 gap-4">
                 {ideasList.map((idea) => (
-                  <div key={idea.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+                  <div
+                    key={idea.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-gray-50/50"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-amber-50 text-amber-600 font-bold rounded-full text-xs">
                         {idea.ideaOrder}
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">{idea.idea}</span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {idea.idea}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       {idea.video && (
-                        <button onClick={() => handlePreview(idea.video, `Video: ${idea.idea}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors cursor-pointer">
+                        <button
+                          onClick={() =>
+                            handlePreview(idea.video, `Video: ${idea.idea}`)
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
+                        >
                           <Video className="w-3.5 h-3.5" /> Watch Video
                         </button>
                       )}
                       {idea.pdf && (
-                        <button onClick={() => handlePreview(idea.pdf, `PDF: ${idea.idea}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer">
+                        <button
+                          onClick={() =>
+                            handlePreview(idea.pdf, `PDF: ${idea.idea}`)
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                        >
                           <FileText className="w-3.5 h-3.5" /> View PDF
                         </button>
                       )}
@@ -291,20 +354,29 @@ const ContentDetails = () => {
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <HelpCircle className="w-5 h-5 text-indigo-500" />
-                <h3 className="text-lg font-bold text-gray-900">Lesson Quizzes ({quizzesList.length})</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Lesson Quizzes ({quizzesList.length})
+                </h3>
               </div>
               <div className="grid grid-cols-1 gap-4">
                 {quizzesList.map((quiz) => (
-                  <div key={quiz.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-indigo-50/10">
+                  <div
+                    key={quiz.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-indigo-50/10"
+                  >
                     <div className="flex items-start gap-3">
                       <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs mt-0.5">
                         {quiz.quizOrder}
                       </div>
                       <div>
-                        <span className="text-sm font-semibold text-gray-800 block">{quiz.title}</span>
+                        <span className="text-sm font-semibold text-gray-800 block">
+                          {quiz.title}
+                        </span>
                         <div className="flex items-center gap-3 mt-2">
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                            <Clock className="w-3 h-3" /> {quiz.durationMinutes || quiz.durationHours * 60} mins
+                            <Clock className="w-3 h-3" />{" "}
+                            {quiz.durationMinutes || quiz.durationHours * 60}{" "}
+                            mins
                           </span>
                           <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
                             Score: {quiz.totalScore}
@@ -316,7 +388,11 @@ const ContentDetails = () => {
                       disabled={startingQuiz}
                       onClick={async () => {
                         try {
-                          const res = await postData({}, `/api/user/quizzes/${quiz.id}/start`, "Quiz started successfully!");
+                          const res = await postData(
+                            {},
+                            `/api/user/quizzes/${quiz.id}/start`,
+                            "Quiz started successfully!",
+                          );
                           if (res) navigate(`/user/quiz/${quiz.id}`);
                         } catch (err) {
                           console.error(err);
@@ -333,23 +409,33 @@ const ContentDetails = () => {
           )}
 
           {/* 5. عرض الترم الدراسي (Semester Info) */}
-          {((content.isHaveSemester && content.semesters?.length > 0) || rawData.semester) && (
+          {((content.isHaveSemester && content.semesters?.length > 0) ||
+            rawData.semester) && (
             <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <Layers className="w-5 h-5 text-gray-500" />
-                <h3 className="text-lg font-bold text-gray-900">Semester Info</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Semester Info
+                </h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {rawData.semester ? (
                   <div className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl bg-gray-50/50">
                     <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span className="text-sm font-medium text-gray-700">{rawData.semester.name}</span>
+                    <span className="text-sm font-medium text-gray-700">
+                      {rawData.semester.name}
+                    </span>
                   </div>
                 ) : (
                   content.semesters?.map((semester) => (
-                    <div key={semester.id} className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+                    <div
+                      key={semester.id}
+                      className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl bg-gray-50/50"
+                    >
                       <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      <span className="text-sm font-medium text-gray-700">{semester.name}</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        {semester.name}
+                      </span>
                     </div>
                   ))
                 )}
@@ -366,13 +452,20 @@ const ContentDetails = () => {
               </div>
               <div className="space-y-3">
                 {teachersList.map((teacher, index) => (
-                  <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl"
+                  >
                     <div className="w-10 h-10 flex items-center justify-center bg-gray-200 rounded-full font-bold text-gray-700 uppercase">
                       {teacher.name?.charAt(0) || "T"}
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-gray-900">{teacher.name}</h4>
-                      <p className="text-xs text-gray-500 capitalize">{teacher.role || "Instructor"}</p>
+                      <h4 className="text-sm font-bold text-gray-900">
+                        {teacher.name}
+                      </h4>
+                      <p className="text-xs text-gray-500 capitalize">
+                        {teacher.role || "Instructor"}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -383,17 +476,52 @@ const ContentDetails = () => {
       </div>
 
       {/* مودال العرض للـ PDF والفيديو */}
+      {/* مودال العرض للـ PDF والفيديو */}
       {previewModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+          <div
+            ref={modalRef}
+            className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+          >
             <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
-              <h3 className="font-bold text-gray-900 truncate">{previewModal.title}</h3>
-              <button onClick={() => setPreviewModal({ isOpen: false, url: "", title: "" })} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="font-bold text-gray-900 truncate text-sm sm:text-base">
+                {previewModal.title}
+              </h3>
+              <div className="flex items-center gap-2">
+                {/* Download Button */}
+                <a
+                  href={previewModal.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
+                >
+                  Download/Open
+                </a>
+                {/* Full Screen Toggle Button */}
+                <button
+                  onClick={toggleFullScreen}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                >
+                  Full Screen
+                </button>
+                {/* Close Button */}
+                <button
+                  onClick={() =>
+                    setPreviewModal({ isOpen: false, url: "", title: "" })
+                  }
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 bg-gray-900">
-              <iframe src={previewModal.url} title={previewModal.title} className="w-full h-full border-0" allowFullScreen></iframe>
+              <iframe
+                src={previewModal.url}
+                title={previewModal.title}
+                className="w-full h-full border-0"
+                allowFullScreen
+              ></iframe>
             </div>
           </div>
         </div>
