@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -194,18 +194,31 @@ const GridInInput = ({ value, onChange }) => {
 };
 
 // أضفنا هنا onExit المستقبلة من المكون الأب لتقوم بإغلاق الامتحان
-const ActiveExam = ({ onExit }) => {
-  const { id } = useParams();
+const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
+  const params = useParams();
   const navigate = useNavigate();
-  const [isToolsOpen, setIsToolsOpen] = useState(false);
-  const {
-    data: apiResponse,
-    loading,
-    error,
-  } = useGet(`/api/user/diagnostic-exams/${id}/questions`);
   const location = useLocation();
-  const exam = location.state?.exam;
-  const attemptId = location.state?.attemptId;
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+
+  
+  const examMode =
+    examModeProp ||
+    (examProp ? "exam" : null) ||
+    location.state?.examMode ||
+    location.state?.type ||
+    (location.pathname.includes("/exams") ? "exam" : "diagnostic");
+
+  const id = examProp?.id ?? params.id;
+
+  const endpoint =
+    examMode === "exam"
+      ? `/api/user/exams/${id}`
+      : `/api/user/diagnostic-exams/${id}/questions`;
+
+  const { data: apiResponse, loading, error } = useGet(endpoint);
+
+  const diagnosticDuration = location.state?.exam; 
+  const attemptIdFromState = location.state?.attemptId;
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [showScientific, setShowScientific] = useState(false);
@@ -217,12 +230,169 @@ const ActiveExam = ({ onExit }) => {
 
   const { postData, loading: userLoading, error: userError } = usePost("");
 
-  const [timeLeft, setTimeLeft] = useState(exam * 60 || 60 * 60);
+  const [timeLeft, setTimeLeft] = useState(diagnosticDuration * 60 || 60 * 60);
   const [isImageZoomed, setIsImageZoomed] = useState(false);
 
-  const questions = apiResponse?.data?.data || [];
+ 
+  const rawExam =
+    examMode === "exam"
+      ? (apiResponse?.data?.data?.exam ??
+        apiResponse?.data?.exam ??
+        apiResponse?.exam ??
+        null)
+      : null;
+  const rawAttempt =
+    examMode === "exam"
+      ? (apiResponse?.data?.data?.attempt ??
+        apiResponse?.data?.attempt ??
+        apiResponse?.attempt ??
+        null)
+      : null;
+
+  const attemptId =
+    examMode === "exam"
+      ? (examProp?.attemptId ?? rawAttempt?.id)
+      : attemptIdFromState;
+
+ 
+  const calculatorsRaw =
+    rawExam?.calculators ??
+    examProp?.calculators ??
+    location.state?.calculators ??
+    location.state?.diagnosticExam?.calculators ??
+    location.state?.exam?.calculators ??
+    apiResponse?.data?.data?.calculators ??
+    apiResponse?.data?.calculators ??
+    apiResponse?.calculators ??
+    "[]";
+
+  const normalizeToolKey = (s) =>
+    s
+      ?.toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
+  const allowedTools = useMemo(() => {
+    try {
+      const parsed =
+        typeof calculatorsRaw === "string"
+          ? JSON.parse(calculatorsRaw)
+          : calculatorsRaw;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeToolKey).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }, [calculatorsRaw]);
+
+  const allTools = [
+    {
+      key: "graph",
+      name: "Graph",
+      state: showGraph,
+      setter: setShowGraph,
+      icon: <LineChartIcon size={16} />,
+    },
+    {
+      key: "scientific",
+      name: "Scientific",
+      state: showScientific,
+      setter: setShowScientific,
+      icon: <TbMathOff size={16} />,
+    },
+    {
+      key: "matrix",
+      name: "Matrix",
+      state: showMatrix,
+      setter: setShowMatrix,
+      icon: <TbMatrix size={16} />,
+    },
+    {
+      key: "fourfunction",
+      name: "Fourfunction",
+      state: showFourfunction,
+      setter: setShowFourfunction,
+      icon: <BiMath size={16} />,
+    },
+    {
+      key: "geometry",
+      name: "Geometry",
+      state: showGeometry,
+      setter: setShowGeometry,
+      icon: <TbGeometry size={16} />,
+    },
+    {
+      key: "3d",
+      name: "3D",
+      state: showD3,
+      setter: setShowD3,
+      icon: <MdOutline3dRotation size={16} />,
+    },
+  ];
+
+  const availableTools =
+    examMode === "exam"
+      ? allTools.filter((tool) => allowedTools.includes(tool.key))
+      : [];
+
+  const questions = useMemo(() => {
+    if (examMode === "exam") {
+      if (!rawExam?.sections) {
+        if (apiResponse) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            "ActiveExam: couldn't find exam.sections in the /questions response — check the shape below:",
+            apiResponse,
+          );
+        }
+        return [];
+      }
+      return [...rawExam.sections]
+        .sort((a, b) => a.sectionOrder - b.sectionOrder)
+        .flatMap((section) =>
+          [...(section.questions || [])]
+            .sort((a, b) => a.questionOrder - b.questionOrder)
+            .map((q) => ({
+              id: q.questionId,
+              sectionName: section.sectionName,
+              question: q.questionText,
+              image: q.questionImage,
+              answerType: q.answerType,
+              score: q.score,
+              options: (q.options || []).map((o) => ({
+                id: o.id,
+                answer: o.answer,
+                order: o.order,
+              })),
+            })),
+        );
+    }
+    return apiResponse?.data?.data || [];
+  }, [apiResponse, examMode, rawExam]);
+
   const question = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
+
+  // For "exam" mode the duration comes back from the API itself, so the
+  // timer has to be (re)synced once the request resolves.
+  useEffect(() => {
+    if (examMode === "exam" && rawExam?.duration) {
+      setTimeLeft(rawExam.duration * 60);
+    }
+  }, [examMode, rawExam?.duration]);
+
+  // If the attempt was already finished (e.g. user reopened the tab),
+  // send them straight to the review page instead of letting them re-answer.
+  useEffect(() => {
+    if (
+      examMode === "exam" &&
+      rawAttempt &&
+      rawAttempt.status &&
+      rawAttempt.status !== "in_progress"
+    ) {
+      navigate(`/user/review/${rawAttempt.id}`, { replace: true });
+    }
+  }, [examMode, rawAttempt, navigate]);
 
   const getNavButtonSize = (count) => {
     if (count <= 10) return "w-10 h-10 text-sm";
@@ -315,14 +485,22 @@ const ActiveExam = ({ onExit }) => {
       };
     });
 
-    const payload = {
-      answers: formattedAnswers,
-    };
+    const payload =
+      examMode === "exam"
+        ? { attemptId, answers: formattedAnswers }
+        : { answers: formattedAnswers };
+
+    // Diagnostic exams submit against the attempt id; full exams submit
+    // against the exam id itself (backend resolves the in-progress attempt).
+    const submitUrl =
+      examMode === "exam"
+        ? `/api/user/exams/${id}/submit`
+        : `/api/user/diagnostic-exams/${attemptId}/submit`;
 
     try {
       const res = await postData(
         payload,
-        `/api/user/diagnostic-exams/${attemptId}/submit`,
+        submitUrl,
         "Exam submitted successfully!",
       );
 
@@ -545,15 +723,17 @@ const ActiveExam = ({ onExit }) => {
         {/* الجزء الأيمن: أدوات الـ Desmos والوقت */}
         <div className="flex items-center gap-2 relative">
           {/* أضفنا الزر هنا ليظهر بجانب الأدوات */}
-          <button
-            onClick={() => setIsToolsOpen(!isToolsOpen)}
-            className="bg-one text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all z-40"
-          >
-            <LayoutGrid size={16} /> Tools
-          </button>
+          {availableTools.length > 0 && (
+            <button
+              onClick={() => setIsToolsOpen(!isToolsOpen)}
+              className="bg-one text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all z-40"
+            >
+              <LayoutGrid size={16} /> Tools
+            </button>
+          )}
 
           {/* قائمة الأدوات المنسدلة */}
-          {isToolsOpen && (
+          {isToolsOpen && availableTools.length > 0 && (
             <div
               className="absolute top-full right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[100] p-2 flex flex-col animate-in fade-in zoom-in-95 duration-200"
               style={{ maxHeight: "calc(100vh - 100px)", overflowY: "auto" }}
@@ -562,44 +742,7 @@ const ActiveExam = ({ onExit }) => {
                 Available Tools
               </div>
 
-              {[
-                {
-                  name: "Graph",
-                  state: showGraph,
-                  setter: setShowGraph,
-                  icon: <LineChartIcon size={16} />,
-                },
-                {
-                  name: "Scientific",
-                  state: showScientific,
-                  setter: setShowScientific,
-                  icon: <TbMathOff size={16} />,
-                },
-                {
-                  name: "Matrix",
-                  state: showMatrix,
-                  setter: setShowMatrix,
-                  icon: <TbMatrix size={16} />,
-                },
-                {
-                  name: "Fourfunction",
-                  state: showFourfunction,
-                  setter: setShowFourfunction,
-                  icon: <BiMath size={16} />,
-                },
-                {
-                  name: "Geometry",
-                  state: showGeometry,
-                  setter: setShowGeometry,
-                  icon: <TbGeometry size={16} />,
-                },
-                {
-                  name: "3D",
-                  state: showD3,
-                  setter: setShowD3,
-                  icon: <MdOutline3dRotation size={16} />,
-                },
-              ].map((tool) => (
+              {availableTools.map((tool) => (
                 <button
                   key={tool.name}
                   onClick={() => {
@@ -663,8 +806,13 @@ const ActiveExam = ({ onExit }) => {
           {/* Question Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 min-h-[420px] flex flex-col">
             <div className="flex justify-between items-center mb-4">
-              <span className="text-gray-800 font-bold text-sm">
+              <span className="text-gray-800 font-bold text-sm flex items-center gap-2">
                 Question {currentQuestionIndex + 1}
+                {question.sectionName && (
+                  <span className="bg-one/10 text-one px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide">
+                    {question.sectionName}
+                  </span>
+                )}
               </span>
               <span className="bg-gray-50 text-gray-400 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-tighter">
                 {question.answerType}

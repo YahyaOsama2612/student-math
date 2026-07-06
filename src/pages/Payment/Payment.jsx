@@ -145,10 +145,28 @@ const Payment = () => {
   // --- 4. منطق شراء الباقات والملفات ---
   const handleFileChange = (e) => {
     const file = e.target.files[0];
+
     if (file) {
-      // هنا تضع منطق الـ upload الخاص بك وتحويله لروابط مخزنة، كمثال بسيط:
-      setReceiptImg(URL.createObjectURL(file));
-      toast.success("Receipt attached successfully!");
+      // 1. Create a FileReader instance
+      const reader = new FileReader();
+
+      // 2. Define what happens when the file is successfully read
+      reader.onloadend = () => {
+        // The reader.result contains the Base64 string
+        const base64String = reader.result;
+
+        // 3. Set the state with the Base64 string
+        setReceiptImg(base64String);
+        toast.success("Receipt attached successfully!");
+      };
+
+      // 4. Define error handling
+      reader.onerror = () => {
+        toast.error("Failed to convert file to Base64");
+      };
+
+      // 5. Read the file as a data URL (Base64)
+      reader.readAsDataURL(file);
     }
   };
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast, Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
 import { TbMathFunction, TbArrowRight } from "react-icons/tb";
@@ -10,6 +10,28 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // If an admin opened this page with ?token=... (impersonation), pick it
+  // up here, store it, and skip straight to the dashboard instead of
+  // showing the login form.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const impersonationToken = params.get("token");
+    const isImpersonated = params.get("isImpersonated") === "true";
+
+    if (impersonationToken) {
+      localStorage.setItem("token", impersonationToken);
+      localStorage.setItem("isImpersonated", isImpersonated ? "true" : "false");
+
+      // Clean the token out of the URL bar so it isn't left visible/bookmarkable.
+      window.history.replaceState({}, "", window.location.pathname);
+
+      toast.success("Logged in successfully 🎉");
+      navigate("/user/home", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -27,6 +49,7 @@ const Login = () => {
 
       const token = response.data.data.token;
       localStorage.setItem("token", token);
+      localStorage.setItem("isImpersonated", "false");
 
       toast.success("Logged in successfully 🎉");
 
