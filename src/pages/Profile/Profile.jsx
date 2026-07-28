@@ -9,7 +9,8 @@ import {
   LayoutGrid,
   LogOut,
   ShieldCheck,
-  ArrowLeft
+  ArrowLeft,
+  Radio,
 } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import Loading from "@/components/Loading";
@@ -30,13 +31,13 @@ const Profile = () => {
     visible: {
       opacity: 1,
       y: 0,
-      transition: { staggerChildren: 0.1, duration: 0.6 }
-    }
+      transition: { staggerChildren: 0.1, duration: 0.6 },
+    },
   };
 
   const itemVariants = {
     hidden: { opacity: 0, x: -10 },
-    visible: { opacity: 1, x: 0 }
+    visible: { opacity: 1, x: 0 },
   };
 
   return (
@@ -122,6 +123,11 @@ const Profile = () => {
                       icon={<LayoutGrid />}
                       label="Category"
                       value={student.category?.name || "Not Set"}
+                    />
+                    <ProfileField
+                      icon={<Radio />}
+                      label="Live Balance"
+                      value={student.livebalance || "0.00"}
                     />
                   </div>
                 </div>

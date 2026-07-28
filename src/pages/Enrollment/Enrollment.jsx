@@ -9,6 +9,9 @@ import {
   AlertCircle,
   Wallet,
   Tag,
+  TicketPercent,
+  Loader2,
+  X,
 } from "lucide-react";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
@@ -30,6 +33,93 @@ const Enrollment = () => {
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [base64Image, setBase64Image] = useState(null);
 
+  // ---- Promo code state ----
+  const [promoCode, setPromoCode] = useState("");
+  const [promoError, setPromoError] = useState(null);
+  const [appliedPromo, setAppliedPromo] = useState(null); // { code, discountAmount }
+  const { postData: validatePromo, loading: validatingPromo } = usePost(
+    "/api/user/promo-codes/validate",
+  );
+
+  // نفس منطق تحديد نوع العنصر المستخدم في handlePayment، لكن بيتحسب هنا كمان
+  // عشان نقدر نبني الـ items payload بتاع الـ promo code بنفس القيم الحقيقية
+  const resolveApiKey = () => {
+    if (itemToBuy.type === "chapterId" || itemToBuy.type === "chapterIds") {
+      return "chapters";
+    }
+    if (itemToBuy.type === "lessonId" || itemToBuy.type === "lessonIds") {
+      return "lessons";
+    }
+    if (itemToBuy.type === "packageId" || itemToBuy.type === "packageIds") {
+      return "packages";
+    }
+    return "courses";
+  };
+
+  const getSelectedIds = () =>
+    itemToBuy.selectedItems
+      ?.map(
+        (item) =>
+          item.id ||
+          item.courseId ||
+          item.chapterId ||
+          item.lessonId ||
+          item.packageId,
+      )
+      .filter(Boolean) || [];
+
+  const buildPromoItems = () => {
+    const keyMap = {
+      courses: "courseIds",
+      chapters: "chapterIds",
+      lessons: "lessonIds",
+      packages: "packageIds",
+    };
+    const items = {
+      packageIds: [],
+      courseIds: [],
+      chapterIds: [],
+      lessonIds: [],
+    };
+    items[keyMap[resolveApiKey()]] = getSelectedIds();
+    return items;
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setPromoError(null);
+    try {
+      const json = await validatePromo({
+        code: promoCode.trim().toUpperCase(),
+        items: buildPromoItems(),
+      });
+      if (json?.success) {
+        setAppliedPromo({
+          code: promoCode.trim().toUpperCase(),
+          discountAmount: json?.data?.discountAmount ?? json?.discountAmount,
+        });
+        toast.success("Promo code applied!");
+      } else {
+        setPromoError(
+          json?.error?.message || json?.message || "Invalid promo code",
+        );
+      }
+    } catch (err) {
+      setPromoError(err.message || "This code couldn't be validated");
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError(null);
+  };
+
+  const originalPrice = parseFloat(itemToBuy.price) || 0;
+  const discountedPrice = appliedPromo
+    ? originalPrice - (originalPrice * appliedPromo.discountAmount) / 100
+    : originalPrice;
+
   // تحويل الصورة لـ Base64 في حالة الدفع اليدوي
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -48,15 +138,7 @@ const Enrollment = () => {
     }
 
     // 1. تحديد المفتاح المناسب للباك-إند (courses أو chapters أو lessons) بناءً على الـ type القادم
-    let apiKey = "courses";
-    if (itemToBuy.type === "chapterId" || itemToBuy.type === "chapterIds") {
-      apiKey = "chapters";
-    } else if (
-      itemToBuy.type === "lessonId" ||
-      itemToBuy.type === "lessonIds"
-    ) {
-      apiKey = "lessons";
-    }
+    const apiKey = resolveApiKey();
 
     // 2. تشكيل مصفوفة العناصر بالصيغة الهيكلية التي يطلبها الباك-إند: { id, priceId }
     // نقوم بفحص item.id أو item.courseId / item.chapterId / item.lessonId لضمان جلب الـ ID بشكل صحيح مهما كان مصدر الصفحة
@@ -83,6 +165,11 @@ const Enrollment = () => {
     // إضافة الصورة في حالة الدفع اليدوي
     if (selectedMethod.type === "Manual") {
       payload.image = base64Image;
+    }
+
+    // تمرير كود الخصم لو اتطبق
+    if (appliedPromo?.code) {
+      payload.promoCode = appliedPromo.code;
     }
 
     try {
@@ -170,10 +257,65 @@ const Enrollment = () => {
             {/* المجموع الكلي */}
             <div className="pt-4 border-t border-dashed mt-4 flex justify-between items-center text-lg">
               <span className="font-bold text-gray-700">Total Amount</span>
-              <span className="font-black text-one text-xl">
-                {itemToBuy.price} LE
+              <span className="flex items-baseline gap-2">
+                {appliedPromo && (
+                  <span className="text-sm text-gray-400 line-through">
+                    {originalPrice} LE
+                  </span>
+                )}
+                <span className="font-black text-one text-xl">
+                  {discountedPrice.toFixed(2)} LE
+                </span>
               </span>
             </div>
+          </div>
+
+          {/* كود الخصم */}
+          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-3">
+              <TicketPercent className="w-4 h-4 text-one" /> Promo Code
+            </h3>
+
+            {appliedPromo ? (
+              <div className="flex items-center justify-between p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
+                <div className="flex items-center gap-2 text-emerald-800 text-sm font-bold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {appliedPromo.code} applied — {appliedPromo.discountAmount}%
+                  off
+                </div>
+                <button
+                  onClick={handleRemovePromo}
+                  className="text-emerald-700 hover:text-emerald-900"
+                  title="Remove promo code"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                    placeholder="Enter promo code"
+                    className="flex-1 font-mono tracking-wide px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-one/40 focus:border-one/40"
+                  />
+                  <button
+                    onClick={handleApplyPromo}
+                    disabled={validatingPromo || !promoCode.trim()}
+                    className="flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-800 transition-colors disabled:opacity-50"
+                  >
+                    {validatingPromo && (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    )}
+                    Apply
+                  </button>
+                </div>
+                {promoError && (
+                  <p className="mt-2 text-xs text-red-600">{promoError}</p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex gap-3">

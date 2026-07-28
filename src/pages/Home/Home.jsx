@@ -7,6 +7,7 @@ import {
   BarChart,
   Clock,
   FileText,
+  TicketPercent,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SiCoursera } from "react-icons/si";
@@ -42,6 +43,15 @@ const mainFeatures = [
       { label: "Diagnostic Exam", icon: BarChart, path: "/user/diagnostic" },
     ],
   },
+  {
+    title: "Promo Code",
+    description: "Check the latest promo codes and offers to save on your purchases",
+    MainIcon: TicketPercent,
+    buttons: [
+      { label: "Promo Code", icon: TicketPercent, path: "/user/promo" },
+    
+    ],
+  },
   /* {
     title: "Buy Courses",
     description: "Learn new skills and improve your knowledge",
@@ -50,7 +60,7 @@ const mainFeatures = [
       { label: "Buy Courses", icon: FileText, path: "/user/mycourses" },
     ],
   }, */
- /*  {
+  /*  {
     title: "My Purchases",
     description: "Review your past purchases and access your course materials",
     MainIcon: SiCoursera,
@@ -115,14 +125,10 @@ const Home = () => {
           <ActionCard key={index} {...feature} navigate={navigate} />
         ))}
 
-        <Card>
-          <h2 className="text-lg font-bold mb-4">Recent Activity</h2>
-          <img
-            src="https://via.placeholder.com/300x150"
-            alt="Activity"
-            className="rounded-xl w-full object-cover"
-          />
-        </Card>
+       {/*  <Card>
+          <h2 className="text-lg font-bold mb-4">Promo code</h2>
+          <p>See the latest promo codes and offers!</p>
+        </Card> */}
 
         <Card className="flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 bg-gray-50/50">
           <h2 className="text-lg font-bold">Upcoming Feature</h2>

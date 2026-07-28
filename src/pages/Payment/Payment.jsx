@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
@@ -26,6 +26,10 @@ import {
   ExternalLink,
   XCircle,
   History,
+  TicketPercent,
+  Loader2,
+  Lock,
+  Unlock,
 } from "lucide-react";
 
 const Payment = () => {
@@ -40,7 +44,12 @@ const Payment = () => {
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [receiptImg, setReceiptImg] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-
+  const [checkoutMode, setCheckoutMode] = useState("buy"); // buy | upgrade
+  const [upgradeSourceId, setUpgradeSourceId] = useState(null); // id of the package-buy history row being upgraded
+  // --- الـ States الخاصة بكود الخصم في مودال شراء الباقة ---
+  const [promoCode, setPromoCode] = useState("");
+  const [promoError, setPromoError] = useState(null);
+  const [appliedPromo, setAppliedPromo] = useState(null); // { code, discountAmount }
   // --- الـ States الخاصة بجدول تاريخ الباقات ---
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -72,6 +81,9 @@ const Payment = () => {
   );
 
   const { postData, loading: posting } = usePost();
+  const { postData: validatePromo, loading: validatingPromo } = usePost(
+    "/api/user/promo-codes/validate",
+  );
 
   // مخرجات الـ APIs
   const courses = coursesData?.data?.courses || [];
@@ -147,25 +159,18 @@ const Payment = () => {
     const file = e.target.files[0];
 
     if (file) {
-      // 1. Create a FileReader instance
       const reader = new FileReader();
 
-      // 2. Define what happens when the file is successfully read
       reader.onloadend = () => {
-        // The reader.result contains the Base64 string
         const base64String = reader.result;
-
-        // 3. Set the state with the Base64 string
         setReceiptImg(base64String);
         toast.success("Receipt attached successfully!");
       };
 
-      // 4. Define error handling
       reader.onerror = () => {
         toast.error("Failed to convert file to Base64");
       };
 
-      // 5. Read the file as a data URL (Base64)
       reader.readAsDataURL(file);
     }
   };
@@ -179,10 +184,25 @@ const Payment = () => {
       ? "/api/user/payment/package-buy/automatic"
       : "/api/user/payment/package-buy";
 
+    const isUpgrade = checkoutMode === "upgrade";
+    const upgradeAmount = Number(selectedPackage?.answersPrice) || 0;
+
+    if (isUpgrade && upgradeAmount <= 0) {
+      return toast.error("This package has no answers plan price set.");
+    }
+
     const body = {
       packageId: selectedPackage.id,
       paymentMethodId: selectedMethod.id,
       ...(!isAutomatic && { receiptImg }),
+      ...(appliedPromo?.code && { promoCode: appliedPromo.code }),
+      ...(isUpgrade && {
+        isUpgrade: true,
+        includedAnswers: true,
+        packageBuyId: upgradeSourceId,
+        amount: upgradeAmount,
+        reason: "answers_upgrade",
+      }),
     };
 
     try {
@@ -190,16 +210,73 @@ const Payment = () => {
       if (isAutomatic && res?.paymentUrl) {
         window.location.href = res.paymentUrl;
       } else {
-        toast.success("Purchase request submitted successfully!");
+        toast.success(
+          isUpgrade
+            ? "Upgrade request submitted successfully!"
+            : "Purchase request submitted successfully!",
+        );
         setIsModalOpen(false);
         setSelectedPackage(null);
         setReceiptImg("");
+        setCheckoutMode("buy");
+        setUpgradeSourceId(null);
+        resetPromoState();
         refetchPackHistory();
       }
     } catch (err) {
       console.error(err);
     }
   };
+
+  // --- كود الخصم لمودال شراء الباقة ---
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim() || !selectedPackage) return;
+    setPromoError(null);
+    try {
+      const json = await validatePromo({
+        code: promoCode.trim().toUpperCase(),
+        items: {
+          packageIds: [selectedPackage.id],
+          courseIds: [],
+          chapterIds: [],
+          lessonIds: [],
+        },
+      });
+      if (json?.success) {
+        setAppliedPromo({
+          code: promoCode.trim().toUpperCase(),
+          discountAmount: json?.data?.discountAmount ?? json?.discountAmount,
+        });
+        toast.success("Promo code applied!");
+      } else {
+        setPromoError(
+          json?.error?.message || json?.message || "Invalid promo code",
+        );
+      }
+    } catch (err) {
+      setPromoError(err.message || "This code couldn't be validated");
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError(null);
+  };
+
+  const resetPromoState = () => {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError(null);
+  };
+
+  const basePackagePrice =
+    (checkoutMode === "upgrade"
+      ? Number(selectedPackage?.answersPrice)
+      : Number(selectedPackage?.price)) || 0;
+  const discountedPackagePrice = appliedPromo
+    ? basePackagePrice - (basePackagePrice * appliedPromo.discountAmount) / 100
+    : basePackagePrice;
 
   // --- 5. تصنيف طلبات الكورسات (Pending Purchases) ---
   const categorizedPurchases = {
@@ -242,6 +319,19 @@ const Payment = () => {
       ),
     },
     {
+      header: "Answers",
+      key: "includedAnswers",
+      render: (val) => (
+        <span
+          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+            val ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
+          }`}
+        >
+          {val ? "Included" : "None"}
+        </span>
+      ),
+    },
+    {
       header: "Date",
       key: "createdAt",
       render: (val) => (
@@ -251,6 +341,32 @@ const Payment = () => {
       ),
     },
   ];
+
+  const upgradeEligibleRowIds = useMemo(() => {
+    const rowsByPackage = new Map();
+    purchaseHistory.forEach((row) => {
+      const list = rowsByPackage.get(row.package.id) || [];
+      list.push(row);
+      rowsByPackage.set(row.package.id, list);
+    });
+
+    const eligible = new Set();
+    rowsByPackage.forEach((rows) => {
+      const upgradeAlreadyRequested = rows.some(
+        (r) => r.reason === "answers_upgrade",
+      );
+      if (upgradeAlreadyRequested) return;
+
+      const candidate = rows.find(
+        (r) =>
+          r.status === "completed" &&
+          r.includedAnswers === true &&
+          r.package?.hasAnswers,
+      );
+      if (candidate) eligible.add(candidate.id);
+    });
+    return eligible;
+  }, [purchaseHistory]);
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -371,6 +487,7 @@ const Payment = () => {
                 );
                 const isSelected = !!selectedItem;
                 const isPurchased = course.isPurchased;
+
                 const currentPlan = isSelected
                   ? course.pricePlans.find((p) => p.id === selectedItem.planId)
                   : getDefaultPlan(course.pricePlans);
@@ -391,7 +508,11 @@ const Payment = () => {
                   >
                     {isBuyMode && !isPurchased && (
                       <div
-                        className={`absolute -top-2 -right-2 w-8 h-8 rounded-full border-4 border-white flex items-center justify-center shadow-lg transition-all ${isSelected ? "bg-one text-white scale-110" : "bg-gray-100 text-gray-400"}`}
+                        className={`absolute -top-2 -right-2 w-8 h-8 rounded-full border-4 border-white flex items-center justify-center shadow-lg transition-all z-10 ${
+                          isSelected
+                            ? "bg-one text-white scale-110"
+                            : "bg-gray-100 text-gray-400"
+                        }`}
                       >
                         {isSelected ? (
                           <CheckCircle2 className="w-4 h-4" />
@@ -402,8 +523,8 @@ const Payment = () => {
                     )}
 
                     {isPurchased && (
-                      <div className="absolute top-4 right-4 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Purchased
+                      <div className="absolute top-4 right-4 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 z-10">
+                        <Unlock className="w-3 h-3" /> Purchased
                       </div>
                     )}
 
@@ -420,6 +541,7 @@ const Payment = () => {
                       <h3 className="text-lg font-bold text-gray-800 mb-2 px-1">
                         {course.name}
                       </h3>
+
                       <div className="flex items-center gap-4 px-1 mb-4">
                         <div className="flex items-center gap-1 text-xs text-gray-400 font-medium">
                           <BookOpen className="w-3.5 h-3.5" />{" "}
@@ -503,10 +625,15 @@ const Payment = () => {
                           }}
                           className="group flex items-center gap-2 px-4 py-2 bg-white rounded-2xl shadow-md hover:shadow-lg hover:bg-gray-50 active:scale-95 transition-all duration-200"
                         >
+                          {isPurchased ? (
+                            <Unlock className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <Lock className="w-4 h-4 text-gray-400 group-hover:text-one transition-colors" />
+                          )}
                           <span className="text-sm font-medium text-gray-700 group-hover:text-one transition-colors">
                             {isPurchased ? "Open" : "See Chapters"}
                           </span>
-                          <ChevronRight className="w-5 h-5 text-gray-500 group-hover:text-one transform group-hover:translate-x-1 transition-all duration-200" />
+                          <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-one transform group-hover:translate-x-1 transition-all duration-200" />
                         </button>
                       )}
                     </div>
@@ -536,9 +663,49 @@ const Payment = () => {
                     EGP
                   </span>
                 </div>
+                {pkg.hasAnswers && Number(pkg.answersPrice) > 0 && (
+                  <div className="mb-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-sky-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5 text-blue-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M9 12h6m-3-3v6m9-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-blue-700">
+                          Answers Review Add-on
+                        </p>
+
+                        <p className="mt-1 text-xs text-gray-600 leading-5">
+                          Unlock answer reviews for only{" "}
+                          <span className="font-bold text-blue-700">
+                            +{pkg.answersPrice} EGP
+                          </span>
+                          . Purchase this add-on first, then you can upgrade
+                          your package with answers anytime.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <button
                   onClick={() => {
+                    setCheckoutMode("buy");
+                    setUpgradeSourceId(null);
                     setSelectedPackage(pkg);
+                    resetPromoState();
                     setIsModalOpen(true);
                   }}
                   className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
@@ -716,18 +883,40 @@ const Payment = () => {
                   }}
                   searchTerm={searchTerm}
                   onSearchChange={(val) => setSearchTerm(val)}
-                  extraActions={(row) =>
-                    row.receiptImg && (
-                      <a
-                        href={row.receiptImg}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-2 text-one hover:bg-one/5 rounded-lg transition-all"
-                      >
-                        <Eye size={18} />
-                      </a>
-                    )
-                  }
+                  extraActions={(row) => {
+                    const packageInfo = row.package;
+                    const canUpgrade = upgradeEligibleRowIds.has(row.id);
+
+                    return (
+                      <div className="flex items-center gap-2">
+                        {row.receiptImg && (
+                          <a
+                            href={row.receiptImg}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-2 text-one hover:bg-one/5 rounded-lg"
+                          >
+                            <Eye size={18} />
+                          </a>
+                        )}
+
+                        {canUpgrade && (
+                          <button
+                            onClick={() => {
+                              setCheckoutMode("upgrade");
+                              setSelectedPackage(packageInfo);
+                              setUpgradeSourceId(row.id);
+                              resetPromoState();
+                              setIsModalOpen(true);
+                            }}
+                            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+                          >
+                            Upgrade
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }}
                 />
               </div>
             )}
@@ -760,26 +949,38 @@ const Payment = () => {
       {/* ─── PACKAGE PURCHASE MODAL ─── */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl overflow-hidden">
-            <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+          <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30 shrink-0">
               <div>
-                <h3 className="text-2xl font-black text-gray-800">Checkout</h3>
+                <h3 className="text-2xl font-black text-gray-800">
+                  {checkoutMode === "upgrade" ? "Upgrade" : "Checkout"}
+                </h3>
                 <p className="text-sm text-gray-400">
-                  Completing purchase for{" "}
+                  {checkoutMode === "upgrade"
+                    ? "Adding answers to your purchase of "
+                    : "Completing purchase for "}
                   <span className="text-one font-bold">
                     {selectedPackage?.name}
                   </span>
                 </p>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setCheckoutMode("buy");
+                  setUpgradeSourceId(null);
+                  resetPromoState();
+                }}
                 className="text-gray-400 hover:text-red-500 text-3xl font-light"
               >
                 ×
               </button>
             </div>
 
-            <form onSubmit={handlePurchasePackage} className="p-8 space-y-8">
+            <form
+              onSubmit={handlePurchasePackage}
+              className="p-8 space-y-8 overflow-y-auto"
+            >
               <div className="space-y-4">
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
                   Choose Payment Method
@@ -816,6 +1017,60 @@ const Payment = () => {
                 </div>
               </div>
 
+              {checkoutMode === "buy" && (
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
+                    Promo Code
+                  </label>
+                  {appliedPromo ? (
+                    <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
+                      <div className="flex items-center gap-2 text-emerald-800 text-sm font-bold">
+                        <CheckCircle2 className="w-4 h-4" />
+                        {appliedPromo.code} applied —{" "}
+                        {appliedPromo.discountAmount}% off
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemovePromo}
+                        className="text-emerald-700 hover:text-emerald-900"
+                        title="Remove promo code"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex gap-2">
+                        <input
+                          value={promoCode}
+                          onChange={(e) =>
+                            setPromoCode(e.target.value.toUpperCase())
+                          }
+                          placeholder="Enter promo code"
+                          className="flex-1 font-mono tracking-wide px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-one/40 focus:border-one/40"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyPromo}
+                          disabled={validatingPromo || !promoCode.trim()}
+                          className="flex items-center gap-1.5 bg-gray-900 text-white px-5 py-3 rounded-2xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50"
+                        >
+                          {validatingPromo && (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          )}
+                          Apply
+                        </button>
+                      </div>
+                      {promoError && (
+                        <p className="mt-2 text-xs text-red-600">
+                          {promoError}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {selectedMethod?.type === "Manual" && (
                 <div className="space-y-4">
                   <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-start gap-3">
@@ -823,7 +1078,21 @@ const Payment = () => {
                     <p className="text-xs text-amber-700 font-medium">
                       Please transfer{" "}
                       <span className="font-bold underline">
-                        {selectedPackage?.price} EGP
+                        {appliedPromo ? (
+                          <>
+                            <span className="line-through opacity-60 mr-1">
+                              {checkoutMode === "upgrade"
+                                ? selectedPackage?.answersPrice
+                                : selectedPackage?.price}
+                            </span>
+                            {discountedPackagePrice.toFixed(2)}
+                          </>
+                        ) : checkoutMode === "upgrade" ? (
+                          selectedPackage?.answersPrice
+                        ) : (
+                          selectedPackage?.price
+                        )}{" "}
+                        EGP
                       </span>{" "}
                       to the wallet number, then upload the screenshot below.
                     </p>
@@ -855,7 +1124,22 @@ const Payment = () => {
                     <Zap size={20} />
                   </div>
                   <p className="text-xs text-blue-700 font-bold leading-relaxed">
-                    INSTANT ACTIVATION:
+                    INSTANT ACTIVATION —{" "}
+                    {appliedPromo ? (
+                      <>
+                        <span className="line-through opacity-60 mr-1">
+                          {checkoutMode === "upgrade"
+                            ? selectedPackage?.answersPrice
+                            : selectedPackage?.price}
+                        </span>
+                        {discountedPackagePrice.toFixed(2)}
+                      </>
+                    ) : checkoutMode === "upgrade" ? (
+                      selectedPackage?.answersPrice
+                    ) : (
+                      selectedPackage?.price
+                    )}{" "}
+                    EGP:
                     <br />
                     <span className="font-normal opacity-70 text-[10px]">
                       You'll be redirected to a secure payment gateway.
@@ -873,7 +1157,9 @@ const Payment = () => {
                   ? "PROCESSING..."
                   : selectedMethod?.type === "Automatic"
                     ? "PROCEED TO SECURE PAY"
-                    : "CONFIRM PURCHASE"}
+                    : checkoutMode === "upgrade"
+                      ? "CONFIRM UPGRADE"
+                      : "CONFIRM PURCHASE"}
               </button>
             </form>
           </div>

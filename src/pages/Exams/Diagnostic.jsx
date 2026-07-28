@@ -23,6 +23,55 @@ const Diagnostic = () => {
   const selectedCourse = courses.find((c) => c.id === activeCourseId);
   const exams = selectedCourse?.diagnosticExams || [];
 
+  // امتحانات اتقفلت لإن المحاولة اتبعتت خلاص (already submitted) من الباك اند
+  // بنخزنها في localStorage عشان القفل يفضل شغال حتى لو اليوزر عمل reload
+  // أو قفل الموقع وفتحه تاني، مش بس لحد ما الصفحة تتغير
+  const BLOCKED_EXAMS_STORAGE_KEY = "diagnosticBlockedExams";
+
+  const [blockedExamIds, setBlockedExamIds] = useState(() => {
+    try {
+      const stored = localStorage.getItem(BLOCKED_EXAMS_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // كل مرة الـ state يتغير بنحفظه في localStorage تاني
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        BLOCKED_EXAMS_STORAGE_KEY,
+        JSON.stringify(blockedExamIds),
+      );
+    } catch {
+      // تجاهل لو الـ localStorage مش متاح (مثلاً في وضع التصفح الخاص)
+    }
+  }, [blockedExamIds]);
+
+  // لو الباك اند رجع isCompleted: true لامتحان معين، يبقى بقى عندنا مصدر رسمي للحالة
+  // فمش محتاجين نفضل معتمدين على القفل المحلي (localStorage) بتاعه تاني، فبنمسحه
+  useEffect(() => {
+    const completedIds = courses
+      .flatMap((c) => c.diagnosticExams || [])
+      .filter((exam) => exam.isCompleted)
+      .map((exam) => exam.id);
+
+    if (completedIds.length === 0) return;
+
+    setBlockedExamIds((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      completedIds.forEach((id) => {
+        if (next[id]) {
+          delete next[id];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [courses]);
+
   const handleStartExam = (exam) => {
     // التحقق من حالة الامتحان قبل البدء
     if (exam.isCompleted) {
@@ -30,6 +79,17 @@ const Diagnostic = () => {
         title: "Already Solved",
         text: "You have already completed this exam.",
         icon: "info",
+        confirmButtonColor: "#4f46e5",
+      });
+      return;
+    }
+
+    // الامتحان ده اتقفل خلاص لإن المحاولة اتبعتت من قبل، فمش هنحاول نبدأه تاني
+    if (blockedExamIds[exam.id]) {
+      Swal.fire({
+        title: "Attempt Already Submitted",
+        text: "This exam attempt has already been submitted. Please contact the responsible manager if you'd like it reopened.",
+        icon: "warning",
         confirmButtonColor: "#4f46e5",
       });
       return;
@@ -64,8 +124,22 @@ const Diagnostic = () => {
               state: { exam: exam.duration, attemptId: res.data.attemptId },
             });
           }
-        } catch (error) {
-          Swal.fire("Error", "Failed to start exam", "error");
+        } catch (err) {
+          const serverMessage =
+            err?.response?.data?.message || err?.message || "";
+
+          if (serverMessage.includes("already been submitted")) {
+            // نقفل الزرار خالص لهذا الامتحان ومنسمحش بمحاولة تانية
+            setBlockedExamIds((prev) => ({ ...prev, [exam.id]: true }));
+            Swal.fire({
+              title: "Attempt Already Submitted",
+              text: "This exam attempt has already been submitted. Please contact the responsible manager if you'd like it reopened.",
+              icon: "warning",
+              confirmButtonColor: "#4f46e5",
+            });
+          } else {
+            Swal.fire("Error", "Failed to start exam", "error");
+          }
         }
       }
     });
@@ -112,42 +186,63 @@ const Diagnostic = () => {
       {/* Exams Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {exams.length > 0 ? (
-          exams.map((exam) => (
-            <div
-              key={exam.id}
-              className={`group border rounded-2xl p-5 shadow-sm transition-all duration-300 bg-white flex flex-col justify-between ${
-                exam.isCompleted
-                  ? "opacity-75 border-gray-200"
-                  : "hover:shadow-xl"
-              }`}
-            >
-              <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-3">
-                  {exam.name}
-                </h2>
-                <p className="text-gray-600 text-sm mb-4">{exam.description}</p>
-                <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                  <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg">
-                    ⏱️ {exam.duration} Mins
-                  </span>
-                  <span className="bg-green-50 text-green-600 px-3 py-1.5 rounded-lg">
-                    ❓ {exam.numberOfQuestions} Qs
-                  </span>
-                </div>
-              </div>
+          exams.map((exam) => {
+            // isCompleted من الباك اند هو المصدر الرسمي؛ القفل المحلي (localStorage)
+            // بيتفعل بس لو الباك اند لسه ملحقش يبعت isCompleted: true للامتحان ده
+            const isBlocked = !exam.isCompleted && !!blockedExamIds[exam.id];
 
-              <button
-                className={`w-full mt-6 py-3 rounded-xl font-bold transition-all ${
-                  exam.isCompleted
-                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                    : "bg-one text-white hover:bg-opacity-90 shadow-lg shadow-one/20"
+            return (
+              <div
+                key={exam.id}
+                className={`group border rounded-2xl p-5 shadow-sm transition-all duration-300 bg-white flex flex-col justify-between ${
+                  exam.isCompleted || isBlocked
+                    ? "opacity-75 border-gray-200"
+                    : "hover:shadow-xl"
                 }`}
-                onClick={() => handleStartExam(exam)}
               >
-                {exam.isCompleted ? "Solved" : "Start Exam"}
-              </button>
-            </div>
-          ))
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-3">
+                    {exam.name}
+                  </h2>
+                  <p className="text-gray-600 text-sm mb-4">
+                    {exam.description}
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg">
+                      ⏱️ {exam.duration} Mins
+                    </span>
+                    <span className="bg-green-50 text-green-600 px-3 py-1.5 rounded-lg">
+                      ❓ {exam.numberOfQuestions} Qs
+                    </span>
+                  </div>
+
+                  {isBlocked && (
+                    <p className="mt-3 text-xs font-semibold text-red-500">
+                      Attempt already submitted. Contact the responsible manager
+                      to reopen it.
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  className={`w-full mt-6 py-3 rounded-xl font-bold transition-all ${
+                    exam.isCompleted
+                      ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      : isBlocked
+                        ? "bg-red-50 text-red-500 cursor-not-allowed"
+                        : "bg-one text-white hover:bg-opacity-90 shadow-lg shadow-one/20"
+                  }`}
+                  onClick={() => handleStartExam(exam)}
+                >
+                  {exam.isCompleted
+                    ? "Solved"
+                    : isBlocked
+                      ? "Contact Manager to Reopen"
+                      : "Start Exam"}
+                </button>
+              </div>
+            );
+          })
         ) : (
           <div className="col-span-full text-center py-10 text-gray-500">
             No exams available.

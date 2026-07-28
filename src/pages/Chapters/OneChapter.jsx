@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Wallet,
   Clock,
+  Unlock,
 } from "lucide-react";
 
 const OneChapter = () => {
@@ -41,6 +42,11 @@ const OneChapter = () => {
     if (!isBuyMode) {
       // التوجيه لصفحة الدرس الواحد عند الضغط عليه في الوضع العادي
       navigate(`/user/lesson/${lesson.id}`);
+      return;
+    }
+
+    // الدرس ده متاح بالفعل (isLocked: false) فمش هنسمح بشرائه تاني
+    if (lesson.isLocked === false) {
       return;
     }
 
@@ -178,15 +184,18 @@ const OneChapter = () => {
             (l) => l.lessonId === lesson.id,
           );
           const isSelected = !!selectedItem;
+          const isUnlocked = lesson.isLocked === false;
 
           // جلب الخطة الحالية المعتمدة للعرض في تفاصيل الدرس
           const currentPlan = isSelected
             ? lesson.pricePlans?.find((p) => p.id === selectedItem.planId)
             : getDefaultPlan(lesson.pricePlans);
 
-          const lessonPriceLabel = currentPlan
-            ? `${parseFloat(currentPlan.totalPriceEgp)} LE`
-            : "Included in Chapter";
+          const lessonPriceLabel = isUnlocked
+            ? "Unlocked"
+            : currentPlan
+              ? `${parseFloat(currentPlan.totalPriceEgp)} LE`
+              : "Included in Chapter";
 
           return (
             <div
@@ -194,9 +203,11 @@ const OneChapter = () => {
               onClick={() => toggleLesson(lesson)}
               className={`group bg-white rounded-2xl p-5 border-2 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
                 isBuyMode
-                  ? isSelected
-                    ? "border-one bg-one/5"
-                    : "border-gray-100 cursor-pointer hover:border-one/30"
+                  ? isUnlocked
+                    ? "border-green-100 bg-green-50/40 cursor-default"
+                    : isSelected
+                      ? "border-one bg-one/5 cursor-pointer"
+                      : "border-gray-100 cursor-pointer hover:border-one/30"
                   : "border-gray-100 cursor-pointer hover:border-one/30"
               }`}
             >
@@ -204,13 +215,17 @@ const OneChapter = () => {
               <div className="flex items-center gap-4 min-w-0 flex-1">
                 <div
                   className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold transition-all flex-shrink-0 ${
-                    isSelected
-                      ? "bg-one text-white"
-                      : "bg-gray-50 text-gray-400"
+                    isBuyMode && isUnlocked
+                      ? "bg-green-100 text-green-600"
+                      : isSelected
+                        ? "bg-one text-white"
+                        : "bg-gray-50 text-gray-400"
                   }`}
                 >
                   {isBuyMode ? (
-                    isSelected ? (
+                    isUnlocked ? (
+                      <Unlock className="w-5 h-5" />
+                    ) : isSelected ? (
                       <CheckCircle2 className="w-5 h-5" />
                     ) : (
                       <Plus className="w-5 h-5" />
@@ -224,15 +239,21 @@ const OneChapter = () => {
                   <h4 className="font-bold text-gray-800 group-hover:text-one transition-colors truncate">
                     {lesson.name}
                   </h4>
-                  <p className="text-xs text-gray-400 font-medium">
+                  <p
+                    className={`text-xs font-medium ${
+                      isUnlocked ? "text-green-600" : "text-gray-400"
+                    }`}
+                  >
                     {lessonPriceLabel}{" "}
-                    {currentPlan && `• ${currentPlan.durationLabel}`}
+                    {!isUnlocked &&
+                      currentPlan &&
+                      `• ${currentPlan.durationLabel}`}
                   </p>
                 </div>
               </div>
 
-              {/* قسم الوسط واليمين: الـ Price Plans (يظهر فقط في وضع الشراء) */}
-              {isBuyMode && lesson.pricePlans?.length > 0 && (
+              {/* قسم الوسط واليمين: الـ Price Plans (يظهر فقط في وضع الشراء، ولو الدرس لسه مقفول) */}
+              {isBuyMode && !isUnlocked && lesson.pricePlans?.length > 0 && (
                 <div
                   className="flex flex-wrap gap-2 items-center justify-start md:justify-end w-full md:w-auto max-w-full md:max-w-md bg-gray-50/50 p-2 rounded-xl md:bg-transparent md:p-0"
                   onClick={(e) => e.stopPropagation()} // منع الـ toggle الرئيسي للكارت عند اختيار خطة
@@ -268,6 +289,13 @@ const OneChapter = () => {
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {/* شارة "متاح بالفعل" في وضع الشراء للدروس غير المقفولة */}
+              {isBuyMode && isUnlocked && (
+                <div className="flex items-center gap-2 text-green-600 text-xs font-bold bg-green-100 px-3 py-1.5 rounded-xl flex-shrink-0">
+                  <Unlock className="w-4 h-4" /> Already Unlocked
                 </div>
               )}
 

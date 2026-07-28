@@ -23,6 +23,19 @@ const Upcoming = () => {
   );
   const { postData, loading: joinLoading } = usePost();
 
+  // الأوقات (timeFrom/timeTo) بتتخزن وتتبعت من الباك اند بتوقيت UTC،
+  // فبنحولها هنا لتوقيت جهاز اليوزر قبل ما نعرضها
+  const formatUTCTimeToLocal = (timeStr) => {
+    if (!timeStr) return "";
+    const [hours, minutes] = timeStr.split(":");
+    const d = new Date();
+    d.setUTCHours(parseInt(hours, 10));
+    d.setUTCMinutes(parseInt(minutes, 10));
+    d.setUTCSeconds(0);
+    d.setUTCMilliseconds(0);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
   useEffect(() => {
     AOS.init({
       duration: 800,
@@ -143,7 +156,7 @@ const Upcoming = () => {
                       <Clock size={16} />
                     </div>
                     <span className="text-sm font-medium">
-                      {session.timeFrom} — {session.timeTo}
+                      {formatUTCTimeToLocal(session.timeFrom)} — {formatUTCTimeToLocal(session.timeTo)}
                     </span>
                   </div>
                 </div>

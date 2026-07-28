@@ -16,6 +16,7 @@ import ResetPassword from "../Auth/ResetPassword";
 import ResendVerificationEmail from "../Auth/ResendVerificationEmail";
 import Message from "../Auth/Message";
 
+
 import History from "../pages/Attent/History";
 import Upcoming from '../pages/Attent/Upcoming'
 import Diagnostic from "../pages/Exams/Diagnostic";
@@ -31,6 +32,7 @@ import Purchases from "../pages/Purchases/purchases";
 import PendingPurchases from "../pages/Purchases/PendingPurchase";
 import ContentDetails from "../pages/Purchases/ContentDetails";
 import Quiz from "../pages/Quizes/quiz";
+import PromoPage from "../pages/PromoCode/promo";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -99,6 +101,10 @@ const router = createBrowserRouter([
       {
         path: "upcoming",
         element: <Upcoming />,
+      },
+      {
+        path: "promo",
+        element: <PromoPage />,
       },
       {
         path: "activeexam/:id",
