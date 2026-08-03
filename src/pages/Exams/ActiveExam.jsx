@@ -200,7 +200,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const location = useLocation();
   const [isToolsOpen, setIsToolsOpen] = useState(false);
 
-  
   const examMode =
     examModeProp ||
     (examProp ? "exam" : null) ||
@@ -217,7 +216,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const { data: apiResponse, loading, error } = useGet(endpoint);
 
-  const diagnosticDuration = location.state?.exam; 
+  const diagnosticDuration = location.state?.exam;
   const attemptIdFromState = location.state?.attemptId;
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -233,7 +232,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const [timeLeft, setTimeLeft] = useState(diagnosticDuration * 60 || 60 * 60);
   const [isImageZoomed, setIsImageZoomed] = useState(false);
 
- 
   const rawExam =
     examMode === "exam"
       ? (apiResponse?.data?.data?.exam ??
@@ -254,7 +252,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       ? (examProp?.attemptId ?? rawAttempt?.id)
       : attemptIdFromState;
 
- 
   const calculatorsRaw =
     rawExam?.calculators ??
     examProp?.calculators ??
@@ -414,7 +411,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   }, [timeLeft]);
 
   const handleBack = async () => {
-    const result = await Swal.fire({
+   /*  const result = await Swal.fire({
       title: "Leave the exam?",
       text: "Are you sure you want to go back? You won't be able to re-enter this exam.",
       icon: "warning",
@@ -426,7 +423,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       reverseButtons: true,
     });
 
-    if (!result.isConfirmed) return;
+    if (!result.isConfirmed) return; */
 
     if (onExit) {
       onExit();
@@ -446,9 +443,18 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     setAnswers({ ...answers, [question.id]: value });
   };
 
+  // Single source of truth for "did the student actually answer this
+  // question". A grid-in field that only contains whitespace (e.g. a
+  // stray space typed on a physical keyboard) must NOT count as answered —
+  // previously the nav dots used a plain truthy check while the counter
+  // trimmed first, so the two could disagree (dots showing 20/20 solved
+  // while the counter said 19/20).
+  const isAnswered = (value) =>
+    value !== undefined && value !== null && value.toString().trim() !== "";
+
   const handleSubmit = async () => {
-    const validAnswers = Object.entries(answers).filter(
-      ([_, value]) => value && value.toString().trim() !== "",
+    const validAnswers = Object.entries(answers).filter(([_, value]) =>
+      isAnswered(value),
     );
 
     const answeredCount = validAnswers.length;
@@ -469,26 +475,40 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       if (!result.isConfirmed) return;
     }
 
+    // Grid-in values are stored as the raw typed expression (e.g. "11/2").
+    // The backend expects the evaluated numeric value (e.g. "5.5"), so we
+    // resolve it here instead of relying on the student opening the Preview tab.
+    const resolveGridInValue = (rawValue) => {
+      const raw = rawValue.toString();
+      const evaluated = evaluateExpression(raw);
+      return evaluated && evaluated !== "—" ? evaluated : raw;
+    };
+
     const formattedAnswers = validAnswers.map(([questionId, value]) => {
       const questionObj = questions.find((q) => q.id === questionId);
+      const isMCQ = questionObj?.answerType === "MCQ";
 
-      if (questionObj?.answerType === "MCQ") {
+      if (examMode === "exam") {
+        // /api/user/exams/{id}/submit expects both keys present,
+        // with the unused one set to null.
         return {
-          questionId: questionId,
-          answerId: value,
+          questionId,
+          selectedOptionId: isMCQ ? value : null,
+          gridInAnswer: isMCQ ? null : resolveGridInValue(value),
         };
       }
 
+      // /api/user/diagnostic-exams/{examId}/submit
       return {
-        questionId: questionId,
-        textValue: value.toString(),
+        questionId,
+        answerId: value,
       };
     });
 
-    const payload =
-      examMode === "exam"
-        ? { attemptId, answers: formattedAnswers }
-        : { answers: formattedAnswers };
+    // Exam submissions only need { answers }: the backend resolves the
+    // in-progress attempt from the exam id in the URL. Diagnostic
+    // submissions are the same shape on the wire.
+    const payload = { answers: formattedAnswers };
 
     // Diagnostic exams submit against the attempt id; full exams submit
     // against the exam id itself (backend resolves the in-progress attempt).
@@ -512,7 +532,21 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
         confirmButtonColor: "#4f46e5",
       });
 
-      navigate(`/user/review/${attemptId}`);
+      navigate(`/user/review/${attemptId}`, {
+        // For a full exam, the submit response already contains everything
+        // Review needs (score, pass/fail, mistakes) — forward it so Review
+        // renders directly from this instead of calling the diagnostic
+        // review endpoint. Diagnostic submissions get no state, so Review
+        // falls back to its normal diagnostic-review fetch.
+        state:
+          examMode === "exam"
+            ? {
+                examMode: "exam",
+                examId: id,
+                examResult: res?.data?.result ?? res?.result ?? res,
+              }
+            : undefined,
+      });
     } catch (err) {
       console.error("Error submitting exam:", err);
 
@@ -793,7 +827,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
               <button
                 key={q.id}
                 onClick={() => setCurrentQuestionIndex(index)}
-                className={`${navBtnSize} rounded-md font-bold transition-all ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${answers[q.id] ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
+                className={`${navBtnSize} rounded-md font-bold transition-all ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${isAnswered(answers[q.id]) ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
               >
                 {index + 1}
               </button>
@@ -925,12 +959,8 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
           <span className="text-xs font-semibold text-gray-500">
             Questions:{" "}
-            {
-              Object.values(answers).filter(
-                (v) => v && v.toString().trim() !== "",
-              ).length
-            }
-            /{questions.length} answered
+            {Object.values(answers).filter((v) => isAnswered(v)).length}/
+            {questions.length} answered
           </span>
 
           {isLastQuestion ? (

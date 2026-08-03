@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Play } from "lucide-react";
-import Swal from "sweetalert2"; // تم إضافة SweetAlert2 للتنبيهات
+import Swal from "sweetalert2";
 import useGet from "../../hooks/useGet";
 import usePost from "../../hooks/usePost";
 import ActiveExam from "./ActiveExam";
@@ -14,7 +14,25 @@ const Exams = () => {
   const [activeTab, setActiveTab] = useState("");
   const navigate = useNavigate();
 
-  // استخراج التبويبات الفريدة
+  // 1. Handle errors when loading exams on initial page load
+  useEffect(() => {
+    if (error) {
+      const errorMsg = typeof error === "string" ? error : error?.message || "";
+
+      if (
+        errorMsg.includes("You do not have balance") ||
+        errorMsg.includes("balance")
+      ) {
+        Swal.fire("Error", errorMsg, "error").then(() => {
+          navigate("/user/payment");
+        });
+      } else {
+        Swal.fire("Error", errorMsg, "error");
+      }
+    }
+  }, [error, navigate]);
+
+  // Extract unique tabs
   const tabs = useMemo(() => {
     if (!response?.data?.courses) return [];
     const codes = new Set();
@@ -32,10 +50,9 @@ const Exams = () => {
     }
   }, [tabs, activeTab]);
 
-  // دالة البدء التي تتصل بالسيرفر
+  // Start exam handler
   const handleStartExam = async (exam) => {
     try {
-      // إرسال طلب البدء للسيرفر
       const res = await postData(
         {},
         `/api/user/exams/${exam.id}/start`,
@@ -43,14 +60,30 @@ const Exams = () => {
       );
 
       if (res?.success || res?.status === 200) {
-        // تمرير الـ attemptId القادم من السيرفر إلى مكون ActiveExam
         setActiveExam({ ...exam, attemptId: res.data.attemptId });
       } else {
-        Swal.fire("Error", "Could not start the exam", "error");
+        const errorMsg =
+          res?.message || res?.data?.message || "Could not start the exam";
+
+        if (errorMsg.includes("You do not have balance")) {
+          await Swal.fire("Error", errorMsg, "error");
+          navigate("/user/payment");
+        } else {
+          Swal.fire("Error", errorMsg, "error");
+        }
       }
     } catch (err) {
-      Swal.fire("Error", "You do not have balance, please try to purchase an exam package.", "error");
-      navigate("/user/payment");
+      const errorMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        " You do not have balance, please try to purchase an exam package.";
+
+      if (errorMsg.includes("You do not have balance")) {
+        await Swal.fire("Error", errorMsg, "error");
+        navigate("/user/payment");
+      } else {
+        Swal.fire("Error", errorMsg, "error");
+      }
     }
   };
 
@@ -58,8 +91,10 @@ const Exams = () => {
     return <ActiveExam exam={activeExam} onExit={() => setActiveExam(null)} />;
   }
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error}</div>;
+  if (loading) return <div className="p-8">Loading...</div>;
+
+  // 2. Prevent rendering raw error text on screen while redirecting
+  if (error) return null;
 
   const courses = response?.data?.courses || [];
 
@@ -70,7 +105,7 @@ const Exams = () => {
           Practice Tests
         </h1>
 
-        {/* التبات (Tabs) */}
+        {/* Tabs */}
         <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
           {tabs.map((tab) => (
             <button
@@ -87,7 +122,7 @@ const Exams = () => {
           ))}
         </div>
 
-        {/* عرض الامتحانات */}
+        {/* Exams List */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {courses.map((course) =>
             course.exams
