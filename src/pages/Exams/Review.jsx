@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
+import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import jsPDF from "jspdf";
@@ -11,15 +12,9 @@ const Review = () => {
   const location = useLocation();
   const [expandedRow, setExpandedRow] = useState(null);
 
-  // If we just submitted a full exam, ActiveExam already forwarded the
-  // submit response (score + mistakes) via navigation state. In that case
-  // we render straight from it and never hit the diagnostic review
-  // endpoint at all — that endpoint is diagnostic-only.
   const examResult =
     location.state?.examMode === "exam" ? location.state?.examResult : null;
 
-  // NOTE: assumes useGet skips fetching when passed a falsy url (common
-  // convention). If it doesn't, this needs a small tweak on the hook side.
   const { data, loading, error } = useGet(
     examResult
       ? null
@@ -163,14 +158,22 @@ const Review = () => {
           <div
             key={q.questionId}
             id={`question-${index + 1}`}
-            className={`p-5 rounded-xl border shadow-sm ${q.isCorrect ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
+            className={`p-5 rounded-xl border shadow-sm ${
+              q.isCorrect
+                ? "bg-green-50 border-green-200"
+                : "bg-red-50 border-red-200"
+            }`}
           >
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-bold text-lg text-slate-800">
                 Question {index + 1}
               </h3>
               <span
-                className={`px-3 py-1 text-sm rounded-full font-medium ${q.isCorrect ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}
+                className={`px-3 py-1 text-sm rounded-full font-medium ${
+                  q.isCorrect
+                    ? "bg-green-200 text-green-800"
+                    : "bg-red-200 text-red-800"
+                }`}
               >
                 {q.isCorrect ? "Correct" : "Wrong Answer"}
               </span>
@@ -212,6 +215,7 @@ const Review = () => {
                     <img
                       src={q.explanationContent.image}
                       className="w-full max-w-xs rounded border"
+                      alt="Explanation"
                     />
                   </div>
                 )}
@@ -236,6 +240,7 @@ const Review = () => {
                     <a
                       href={q.explanationContent.pdf}
                       target="_blank"
+                      rel="noreferrer"
                       className="block text-blue-600 underline"
                     >
                       View Document
@@ -288,6 +293,10 @@ const ExamResultReview = ({ result, examId }) => {
   const { questionBalance, examBalance } = studentBalances || {};
 
   const [answersUrl, setAnswersUrl] = useState(null);
+  const [loadingParallelId, setLoadingParallelId] = useState(null);
+
+  const { postData } = usePost();
+
   const {
     data: answersData,
     loading: answersLoading,
@@ -297,6 +306,27 @@ const ExamResultReview = ({ result, examId }) => {
   const handleShowAnswers = () => {
     if (!examHasAnswers || !examId || !attemptId) return;
     setAnswersUrl(`/api/user/exams/${examId}/attempts/${attemptId}/answers`);
+  };
+
+  const handleSolveParallel = async (questionId) => {
+    try {
+      setLoadingParallelId(questionId);
+
+      const resData = await postData(
+        {
+          attemptId: attemptId,
+          questionIds: [questionId],
+        },
+        "https://bcknd.mathshouse.net/api/user/exams/parallel/questions",
+        "Parallel question requested successfully",
+      );
+
+      console.log("Parallel question response:", resData);
+    } catch (err) {
+      console.error("Error solving parallel question:", err);
+    } finally {
+      setLoadingParallelId(null);
+    }
   };
 
   const answerItems = answersData?.data?.questions || null;
@@ -374,7 +404,7 @@ const ExamResultReview = ({ result, examId }) => {
       body: mistakes.map((m, index) => [
         index + 1,
         stripHtml(m.question),
-        "N/A", // Recap not provided in exam payload
+        "N/A",
       ]),
       startY: 25,
     });
@@ -452,11 +482,6 @@ const ExamResultReview = ({ result, examId }) => {
         <button
           onClick={handleShowAnswers}
           disabled={!examHasAnswers || answersLoading}
-          title={
-            examHasAnswers
-              ? undefined
-              : "Answers aren't available for this attempt"
-          }
           className={`px-5 py-2 rounded-lg font-semibold shadow-md transition-all ${
             examHasAnswers
               ? "bg-slate-800 text-white hover:bg-slate-900"
@@ -557,52 +582,21 @@ const ExamResultReview = ({ result, examId }) => {
                       </div>
                     )}
 
-                    {/* Explanation Section */}
-                    {q.explanation && q.explanation.length > 0 && (
-                      <div className="mt-4 p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                        <p className="font-bold text-slate-800 border-b pb-2 mb-3">
-                          💡 Explanation
-                        </p>
-                        {q.explanation.map((exp) => (
-                          <div key={exp.id} className="space-y-3">
-                            {exp.answerText && (
-                              <div
-                                className="text-slate-700"
-                                dangerouslySetInnerHTML={{
-                                  __html: exp.answerText,
-                                }}
-                              />
-                            )}
-                            {exp.answerImage && (
-                              <img
-                                src={exp.answerImage}
-                                alt="Explanation visual"
-                                className="w-full max-w-sm rounded border"
-                              />
-                            )}
-                            {exp.answerVideo && (
-                              <video
-                                controls
-                                className="w-full max-w-lg rounded border mt-2"
-                              >
-                                <source
-                                  src={exp.answerVideo}
-                                  type="video/mp4"
-                                />
-                              </video>
-                            )}
-                            {exp.answerPdf && (
-                              <a
-                                href={exp.answerPdf}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-block mt-2 px-4 py-2 bg-blue-50 text-blue-700 font-semibold rounded hover:bg-blue-100 transition-colors"
-                              >
-                                📄 View PDF Explanation
-                              </a>
-                            )}
-                          </div>
-                        ))}
+                    {q.hasParallel && (
+                      <div className="mt-3">
+                        <button
+                          onClick={() =>
+                            handleSolveParallel(q.questionId ?? q.id)
+                          }
+                          disabled={
+                            loadingParallelId === (q.questionId ?? q.id)
+                          }
+                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
+                        >
+                          {loadingParallelId === (q.questionId ?? q.id)
+                            ? "Loading..."
+                            : "Solve Parallel"}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -610,11 +604,6 @@ const ExamResultReview = ({ result, examId }) => {
               })}
             </div>
           )}
-          {!answersLoading &&
-            !answersError &&
-            (!answerItems || answerItems.length === 0) && (
-              <p className="text-gray-400 text-sm">No answers data returned.</p>
-            )}
         </div>
       )}
 
@@ -657,6 +646,18 @@ const ExamResultReview = ({ result, examId }) => {
                       </div>
                     ))}
                   </div>
+                )}
+
+                {m.hasParallel && (
+                  <button
+                    onClick={() => handleSolveParallel(m.id)}
+                    disabled={loadingParallelId === m.id}
+                    className="mt-2 px-4 py-2 bg-indigo-600 text-white font-semibold text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                  >
+                    {loadingParallelId === m.id
+                      ? "Loading..."
+                      : "Solve Parallel"}
+                  </button>
                 )}
               </div>
             );
