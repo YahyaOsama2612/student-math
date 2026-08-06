@@ -295,24 +295,28 @@ const ExamResultReview = ({ result, examId }) => {
 
   const [answersUrl, setAnswersUrl] = useState(null);
   const [loadingParallelId, setLoadingParallelId] = useState(null);
-  const [expandedRow, setExpandedRow] = useState(null); // Added state for toggling explanation
   const [parallelData, setParallelData] = useState(null);
+  // Tracks which individual questions currently have their answer revealed.
+  const [revealedAnswerIds, setRevealedAnswerIds] = useState([]);
 
   const { postData } = usePost();
 
-  const {
-    data: answersData,
-    loading: answersLoading,
-    error: answersError,
-  } = useGet(answersUrl);
+  const { data: answersData, loading: answersLoading } = useGet(answersUrl);
 
-  const handleShowAnswers = () => {
+  // Reveals (or hides) the answer for a single question instead of a global
+  // "Show Answers" button, so we don't render the whole question list twice.
+  const handleToggleAnswer = (questionId) => {
     if (!examHasAnswers || !examId || !attemptId) return;
-    setAnswersUrl(`/api/user/exams/${examId}/attempts/${attemptId}/answers`);
-  };
 
-  const toggleExplanation = (index) => {
-    setExpandedRow(expandedRow === index ? null : index);
+    if (!answersUrl) {
+      setAnswersUrl(`/api/user/exams/${examId}/attempts/${attemptId}/answers`);
+    }
+
+    setRevealedAnswerIds((prev) =>
+      prev.includes(questionId)
+        ? prev.filter((id) => id !== questionId)
+        : [...prev, questionId],
+    );
   };
 
   const handleSolveParallel = async (questionId) => {
@@ -345,6 +349,12 @@ const ExamResultReview = ({ result, examId }) => {
 
   const answerItems = answersData?.data?.questions || null;
   const stripHtml = (text) => (text || "").toString().replace(/<[^>]*>/g, "");
+
+  // Finds the fetched answer data that matches a given mistake row.
+  const getAnswerFor = (questionId) =>
+    answerItems?.find(
+      (q) => q.questionId === questionId || q.id === questionId,
+    ) || null;
 
   const downloadQuestionsReport = () => {
     const questionsList = answerItems || mistakes;
@@ -501,218 +511,7 @@ const ExamResultReview = ({ result, examId }) => {
             </p>
           </div>
         </div>
-
-        <button
-          onClick={handleShowAnswers}
-          disabled={!examHasAnswers || answersLoading}
-          className={`px-5 py-2 rounded-lg font-semibold shadow-md transition-all ${
-            examHasAnswers
-              ? "bg-slate-800 text-white hover:bg-slate-900"
-              : "bg-gray-200 text-gray-400 cursor-not-allowed"
-          }`}
-        >
-          {answersLoading
-            ? "Loading answers..."
-            : answersUrl
-              ? "Refresh Answers"
-              : "Show Answers"}
-        </button>
       </div>
-
-      {answersUrl && (
-        <div className="mb-8 p-5 rounded-xl border border-slate-200 bg-white shadow-sm">
-          <h4 className="font-bold mb-4 text-slate-700 border-b pb-2">
-            📋 Your Answers
-          </h4>
-          {answersLoading && <p className="text-gray-500">Loading…</p>}
-          {answersError && (
-            <p className="text-red-600">Failed to load answers.</p>
-          )}
-
-          {!answersLoading && !answersError && answerItems && (
-            <div className="space-y-4">
-              {answerItems.map((q, i) => {
-                const isMCQ = q.answerType === "MCQ";
-                const studentAnswerId = q.studentAnswer?.selectedOptionId;
-                const correctOptionId = q.correctAnswer?.id;
-                const isCorrect = q.studentAnswer?.isCorrect;
-
-                return (
-                  <div
-                    key={q.questionId ?? i}
-                    className={`p-5 rounded-lg border text-sm ${
-                      isCorrect
-                        ? "bg-green-50 border-green-200"
-                        : "bg-red-50 border-red-200"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-3">
-                      <p className="font-bold text-lg text-slate-800">
-                        Question {q.questionOrder ?? i + 1}
-                      </p>
-                      <span
-                        className={`px-3 py-1 text-xs rounded-full font-bold uppercase ${
-                          isCorrect
-                            ? "bg-green-200 text-green-800"
-                            : "bg-red-200 text-red-800"
-                        }`}
-                      >
-                        {isCorrect ? "Correct" : "Incorrect"}
-                      </span>
-                    </div>
-
-                    <div
-                      className="text-slate-800 mb-4 font-medium text-base"
-                      dangerouslySetInnerHTML={{ __html: q.questionText }}
-                    />
-
-                    {isMCQ ? (
-                      <div className="space-y-2 mb-4">
-                        {q.options?.map((opt) => {
-                          const isSelected = opt.id === studentAnswerId;
-                          const isOptCorrect = opt.id === correctOptionId;
-
-                          let optClass =
-                            "border-gray-200 bg-white text-slate-600";
-                          if (isOptCorrect) {
-                            optClass =
-                              "border-green-500 bg-green-100 text-green-900 font-semibold shadow-sm";
-                          } else if (isSelected && !isOptCorrect) {
-                            optClass = "border-red-400 bg-red-100 text-red-900";
-                          }
-
-                          return (
-                            <div
-                              key={opt.id}
-                              className={`px-4 py-3 rounded-lg border ${optClass}`}
-                            >
-                              {opt.order ? `${opt.order}. ` : ""}
-                              {opt.answer}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mb-4 space-y-2 bg-white p-3 rounded border border-gray-200">
-                        <p className="text-slate-700">
-                          <span className="font-bold">Your Answer:</span>{" "}
-                          {q.studentAnswer?.gridInAnswer ?? "Unanswered"}
-                        </p>
-                        <p className="text-slate-700">
-                          <span className="font-bold">Correct Answer:</span>{" "}
-                          {q.correctAnswer?.answer ?? "—"}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Explanation Toggle Section */}
-                    <div className="mb-4">
-                      <button
-                        onClick={() => toggleExplanation(i)}
-                        className="mt-2 px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-all font-semibold shadow-md"
-                      >
-                        {expandedRow === i
-                          ? "Hide explanation"
-                          : "View explanation"}
-                      </button>
-
-                      {expandedRow === i && (
-                        <div className="mt-4 p-4 bg-white border rounded-lg shadow-inner">
-                          <h4 className="font-bold mb-3 text-slate-700 border-b pb-2">
-                            💡 Explanation
-                          </h4>
-
-                          {q.explanation && q.explanation.length > 0 ? (
-                            q.explanation.map((expl, idx) => (
-                              <div key={expl.id || idx}>
-                                {expl.answerText && (
-                                  <div className="mb-4">
-                                    <p className="text-xs font-bold text-gray-400 uppercase">
-                                      Explanation by Text
-                                    </p>
-                                    <div
-                                      className="text-sm text-gray-700"
-                                      dangerouslySetInnerHTML={{
-                                        __html: expl.answerText,
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                                {expl.answerImage && (
-                                  <div className="mb-4">
-                                    <p className="text-xs font-bold text-gray-400 uppercase">
-                                      Explanation by Image
-                                    </p>
-                                    <img
-                                      src={expl.answerImage}
-                                      className="w-full max-w-xs rounded border"
-                                      alt="Explanation"
-                                    />
-                                  </div>
-                                )}
-                                {expl.answerVideo && (
-                                  <div className="mb-4">
-                                    <p className="text-xs font-bold text-gray-400 uppercase">
-                                      Explanation by Video
-                                    </p>
-                                    <video controls className="w-full rounded">
-                                      <source
-                                        src={expl.answerVideo}
-                                        type="video/mp4"
-                                      />
-                                    </video>
-                                  </div>
-                                )}
-                                {expl.answerPdf && (
-                                  <div className="mb-4">
-                                    <p className="text-xs font-bold text-gray-400 uppercase">
-                                      Explanation by PDF
-                                    </p>
-                                    <a
-                                      href={expl.answerPdf}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="block text-blue-600 underline"
-                                    >
-                                      View Document
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-gray-400 text-sm">
-                              No explanation available.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {q.hasParallel && (
-                      <div className="mt-3">
-                        <button
-                          onClick={() =>
-                            handleSolveParallel(q.questionId ?? q.id)
-                          }
-                          disabled={
-                            loadingParallelId === (q.questionId ?? q.id)
-                          }
-                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
-                        >
-                          {loadingParallelId === (q.questionId ?? q.id)
-                            ? "Loading..."
-                            : "Solve Parallel"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Questions to Review (Mistakes) Section */}
       <h3 className="font-bold text-lg text-slate-800 mb-4">
@@ -725,6 +524,10 @@ const ExamResultReview = ({ result, examId }) => {
         <div className="space-y-5">
           {mistakes.map((m, index) => {
             const isMCQ = m.answerType === "MCQ";
+            const isRevealed = revealedAnswerIds.includes(m.id);
+            const answer = isRevealed ? getAnswerFor(m.id) : null;
+            const studentAnswerId = answer?.studentAnswer?.selectedOptionId;
+            const correctOptionId = answer?.correctAnswer?.id;
 
             return (
               <div
@@ -744,29 +547,136 @@ const ExamResultReview = ({ result, examId }) => {
 
                 {isMCQ && (
                   <div className="space-y-2 mb-4">
-                    {m.options?.map((opt) => (
-                      <div
-                        key={opt.id}
-                        className="px-4 py-2 rounded-lg border text-sm bg-white border-gray-200 text-slate-600"
-                      >
-                        {opt.order ? `${opt.order}. ` : ""}
-                        {opt.answer}
+                    {m.options?.map((opt) => {
+                      let optClass = "border-gray-200 bg-white text-slate-600";
+
+                      if (isRevealed) {
+                        const isSelected = opt.id === studentAnswerId;
+                        const isOptCorrect = opt.id === correctOptionId;
+
+                        if (isOptCorrect) {
+                          optClass =
+                            "border-green-500 bg-green-100 text-green-900 font-semibold";
+                        } else if (isSelected && !isOptCorrect) {
+                          optClass = "border-red-400 bg-red-100 text-red-900";
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={opt.id}
+                          className={`px-4 py-2 rounded-lg border text-sm ${optClass}`}
+                        >
+                          {opt.order ? `${opt.order}. ` : ""}
+                          {opt.answer}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!isMCQ && isRevealed && (
+                  <div className="mb-4 space-y-2 bg-white p-3 rounded border border-gray-200 text-sm">
+                    <p className="text-slate-700">
+                      <span className="font-bold">Your Answer:</span>{" "}
+                      {answer?.studentAnswer?.gridInAnswer ?? "Unanswered"}
+                    </p>
+                    <p className="text-slate-700">
+                      <span className="font-bold">Correct Answer:</span>{" "}
+                      {answer?.correctAnswer?.answer ?? "—"}
+                    </p>
+                  </div>
+                )}
+
+                {isRevealed && answer?.explanation?.length > 0 && (
+                  <div className="mb-4 p-4 bg-white border rounded-lg shadow-inner">
+                    <h4 className="font-bold mb-3 text-slate-700 border-b pb-2">
+                      💡 Explanation
+                    </h4>
+                    {answer.explanation.map((expl, idx) => (
+                      <div key={expl.id || idx}>
+                        {expl.answerText && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Text
+                            </p>
+                            <div
+                              className="text-sm text-gray-700"
+                              dangerouslySetInnerHTML={{
+                                __html: expl.answerText,
+                              }}
+                            />
+                          </div>
+                        )}
+                        {expl.answerImage && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Image
+                            </p>
+                            <img
+                              src={expl.answerImage}
+                              className="w-full max-w-xs rounded border"
+                              alt="Explanation"
+                            />
+                          </div>
+                        )}
+                        {expl.answerVideo && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Video
+                            </p>
+                            <video controls className="w-full rounded">
+                              <source src={expl.answerVideo} type="video/mp4" />
+                            </video>
+                          </div>
+                        )}
+                        {expl.answerPdf && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by PDF
+                            </p>
+                            <a
+                              href={expl.answerPdf}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block text-blue-600 underline"
+                            >
+                              View Document
+                            </a>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
 
-                {m.hasParallel && (
-                  <button
-                    onClick={() => handleSolveParallel(m.id)}
-                    disabled={loadingParallelId === m.id}
-                    className="mt-2 px-4 py-2 bg-indigo-600 text-white font-semibold text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
-                  >
-                    {loadingParallelId === m.id
-                      ? "Loading..."
-                      : "Solve Parallel"}
-                  </button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {examHasAnswers && (
+                    <button
+                      onClick={() => handleToggleAnswer(m.id)}
+                      disabled={answersLoading}
+                      className="mt-2 px-4 py-2 bg-slate-800 text-white font-semibold text-sm rounded-lg hover:bg-slate-900 transition disabled:opacity-50"
+                    >
+                      {answersLoading && !isRevealed
+                        ? "Loading..."
+                        : isRevealed
+                          ? "Hide Answer"
+                          : "Show Answer"}
+                    </button>
+                  )}
+
+                  {m.hasParallel && (
+                    <button
+                      onClick={() => handleSolveParallel(m.id)}
+                      disabled={loadingParallelId === m.id}
+                      className="mt-2 px-4 py-2 bg-indigo-600 text-white font-semibold text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                    >
+                      {loadingParallelId === m.id
+                        ? "Loading..."
+                        : "Solve Parallel"}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

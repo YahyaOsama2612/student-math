@@ -716,67 +716,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
           </div>
         </div>
 
-        {/* --- Tools Trigger Buttons --- */}
-        {availableTools.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col md:flex-row gap-3 md:items-center w-full mt-2">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 shrink-0">
-              <LayoutGrid size={12} className="text-one" /> Available Tools
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {availableTools.map((tool) => (
-                <button
-                  key={tool.name}
-                  onClick={() => tool.setter(!tool.state)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                    tool.state
-                      ? "bg-purple-600 text-white shadow-md border border-purple-600"
-                      : "bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200"
-                  }`}
-                >
-                  <span className={tool.state ? "text-white" : "text-gray-400"}>
-                    {tool.icon}
-                  </span>
-                  {tool.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* --- Active Inline Tools Screens --- */}
-        <div className="flex flex-col gap-3">
-          {availableTools
-            .filter((tool) => tool.state)
-            .map((tool) => (
-              <div
-                key={tool.key}
-                className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px] md:h-[600px] animate-in fade-in duration-200"
-              >
-                <div className="flex justify-between items-center px-4 py-3 border-b bg-gray-50">
-                  <span className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                    <span className="text-one">{tool.icon}</span>
-                    {tool.name} Tool
-                  </span>
-                  <button
-                    onClick={() => tool.setter(false)}
-                    className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                <div className="flex-1 w-full relative">
-                  {tool.key === "graph" && <GraphViewer />}
-                  {tool.key === "scientific" && <Scientific />}
-                  {tool.key === "matrix" && <Matrix />}
-                  {tool.key === "fourfunction" && <Fourfunction />}
-                  {tool.key === "geometry" && <Geometry />}
-                  {tool.key === "3d" && <D3 />}
-                </div>
-              </div>
-            ))}
-        </div>
-
-        {/* Controls */}
+        {/* Controls (Positioned directly under Question & Answer Container) */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-3 flex justify-between items-center mt-2">
           <button
             disabled={currentQuestionIndex === 0}
@@ -809,6 +749,66 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
               Next <ChevronRight size={14} />
             </button>
           )}
+        </div>
+
+        {/* --- Tools Trigger Buttons --- */}
+        {availableTools.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col md:flex-row gap-3 md:items-center w-full mt-2">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 shrink-0">
+              <LayoutGrid size={12} className="text-one" /> Available Tools
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {availableTools.map((tool) => (
+                <button
+                  key={tool.name}
+                  onClick={() => tool.setter(!tool.state)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    tool.state
+                      ? "bg-purple-600 text-white shadow-md border border-purple-600"
+                      : "bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  <span className={tool.state ? "text-white" : "text-gray-400"}>
+                    {tool.icon}
+                  </span>
+                  {tool.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* --- Active Inline Tools Screens (Renders below Controls) --- */}
+        <div className="flex flex-col gap-3">
+          {availableTools
+            .filter((tool) => tool.state)
+            .map((tool) => (
+              <div
+                key={tool.key}
+                className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px] md:h-[600px] animate-in fade-in duration-200"
+              >
+                <div className="flex justify-between items-center px-4 py-3 border-b bg-gray-50">
+                  <span className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <span className="text-one">{tool.icon}</span>
+                    {tool.name} Tool
+                  </span>
+                  <button
+                    onClick={() => tool.setter(false)}
+                    className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="flex-1 w-full relative">
+                  {tool.key === "graph" && <GraphViewer />}
+                  {tool.key === "scientific" && <Scientific />}
+                  {tool.key === "matrix" && <Matrix />}
+                  {tool.key === "fourfunction" && <Fourfunction />}
+                  {tool.key === "geometry" && <Geometry />}
+                  {tool.key === "3d" && <D3 />}
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </div>
