@@ -6,6 +6,7 @@ import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import ParallelQuestions from "./ParallelQuestions";
 
 const Review = () => {
   const { attemptId } = useParams();
@@ -197,56 +198,66 @@ const Review = () => {
                   💡 Explanation & Recap
                 </h4>
 
-                {q.explanationContent?.text && (
-                  <div className="mb-4">
-                    <p className="text-xs font-bold text-gray-400 uppercase">
-                      Explanation by Text
-                    </p>
-                    <p className="text-sm text-gray-700">
-                      {q.explanationContent.text}
-                    </p>
-                  </div>
-                )}
-                {q.explanationContent?.image && (
-                  <div className="mb-4">
-                    <p className="text-xs font-bold text-gray-400 uppercase">
-                      Explanation by Image
-                    </p>
-                    <img
-                      src={q.explanationContent.image}
-                      className="w-full max-w-xs rounded border"
-                      alt="Explanation"
-                    />
-                  </div>
-                )}
-                {q.explanationContent?.video && (
-                  <div className="mb-4">
-                    <p className="text-xs font-bold text-gray-400 uppercase">
-                      Explanation by Video
-                    </p>
-                    <video controls className="w-full rounded">
-                      <source
-                        src={q.explanationContent.video}
-                        type="video/mp4"
-                      />
-                    </video>
-                  </div>
-                )}
-                {q.explanationContent?.pdf && (
-                  <div className="mb-4">
-                    <p className="text-xs font-bold text-gray-400 uppercase">
-                      Explanation by PDF
-                    </p>
-                    <a
-                      href={q.explanationContent.pdf}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-blue-600 underline"
-                    >
-                      View Document
-                    </a>
-                  </div>
-                )}
+                {q.explanation && q.explanation.length > 0
+                  ? q.explanation.map((expl, idx) => (
+                      <div key={expl.id || idx}>
+                        {expl.answerText && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Text
+                            </p>
+                            <div
+                              className="text-sm text-gray-700"
+                              dangerouslySetInnerHTML={{
+                                __html: expl.answerText,
+                              }}
+                            />
+                          </div>
+                        )}
+                        {expl.answerImage && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Image
+                            </p>
+                            <img
+                              src={expl.answerImage}
+                              className="w-full max-w-xs rounded border"
+                              alt="Explanation"
+                            />
+                          </div>
+                        )}
+                        {expl.answerVideo && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by Video
+                            </p>
+                            <video controls className="w-full rounded">
+                              <source src={expl.answerVideo} type="video/mp4" />
+                            </video>
+                          </div>
+                        )}
+                        {expl.answerPdf && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-gray-400 uppercase">
+                              Explanation by PDF
+                            </p>
+                            <a
+                              href={expl.answerPdf}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block text-blue-600 underline"
+                            >
+                              View Document
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  : !q.recommendationToRecap && (
+                      <p className="text-gray-400 text-sm">
+                        No explanation available.
+                      </p>
+                    )}
 
                 {q.recommendationToRecap && (
                   <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-100 text-sm">
@@ -258,16 +269,6 @@ const Review = () => {
                     <p>Lesson: {q.recommendationToRecap.lessonName}</p>
                   </div>
                 )}
-
-                {!q.explanationContent?.text &&
-                  !q.explanationContent?.video &&
-                  !q.explanationContent?.image &&
-                  !q.explanationContent?.pdf &&
-                  !q.recommendationToRecap && (
-                    <p className="text-gray-400 text-sm">
-                      No explanation available.
-                    </p>
-                  )}
               </div>
             )}
           </div>
@@ -294,6 +295,8 @@ const ExamResultReview = ({ result, examId }) => {
 
   const [answersUrl, setAnswersUrl] = useState(null);
   const [loadingParallelId, setLoadingParallelId] = useState(null);
+  const [expandedRow, setExpandedRow] = useState(null); // Added state for toggling explanation
+  const [parallelData, setParallelData] = useState(null);
 
   const { postData } = usePost();
 
@@ -306,6 +309,10 @@ const ExamResultReview = ({ result, examId }) => {
   const handleShowAnswers = () => {
     if (!examHasAnswers || !examId || !attemptId) return;
     setAnswersUrl(`/api/user/exams/${examId}/attempts/${attemptId}/answers`);
+  };
+
+  const toggleExplanation = (index) => {
+    setExpandedRow(expandedRow === index ? null : index);
   };
 
   const handleSolveParallel = async (questionId) => {
@@ -321,7 +328,14 @@ const ExamResultReview = ({ result, examId }) => {
         "Parallel question requested successfully",
       );
 
-      console.log("Parallel question response:", resData);
+      setParallelData(resData?.data ?? null);
+
+      // Navigate the user down to the parallel-questions panel once it renders.
+      requestAnimationFrame(() => {
+        document
+          .getElementById("parallel-questions-panel")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (err) {
       console.error("Error solving parallel question:", err);
     } finally {
@@ -437,6 +451,15 @@ const ExamResultReview = ({ result, examId }) => {
           Export Incorrect & Recap
         </button>
       </div>
+
+      {parallelData && (
+        <div id="parallel-questions-panel" className="mb-8">
+          <ParallelQuestions
+            data={parallelData}
+            onClose={() => setParallelData(null)}
+          />
+        </div>
+      )}
 
       <div
         className={`mb-8 p-6 rounded-xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${
@@ -582,6 +605,90 @@ const ExamResultReview = ({ result, examId }) => {
                       </div>
                     )}
 
+                    {/* Explanation Toggle Section */}
+                    <div className="mb-4">
+                      <button
+                        onClick={() => toggleExplanation(i)}
+                        className="mt-2 px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-all font-semibold shadow-md"
+                      >
+                        {expandedRow === i
+                          ? "Hide explanation"
+                          : "View explanation"}
+                      </button>
+
+                      {expandedRow === i && (
+                        <div className="mt-4 p-4 bg-white border rounded-lg shadow-inner">
+                          <h4 className="font-bold mb-3 text-slate-700 border-b pb-2">
+                            💡 Explanation
+                          </h4>
+
+                          {q.explanation && q.explanation.length > 0 ? (
+                            q.explanation.map((expl, idx) => (
+                              <div key={expl.id || idx}>
+                                {expl.answerText && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-bold text-gray-400 uppercase">
+                                      Explanation by Text
+                                    </p>
+                                    <div
+                                      className="text-sm text-gray-700"
+                                      dangerouslySetInnerHTML={{
+                                        __html: expl.answerText,
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                                {expl.answerImage && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-bold text-gray-400 uppercase">
+                                      Explanation by Image
+                                    </p>
+                                    <img
+                                      src={expl.answerImage}
+                                      className="w-full max-w-xs rounded border"
+                                      alt="Explanation"
+                                    />
+                                  </div>
+                                )}
+                                {expl.answerVideo && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-bold text-gray-400 uppercase">
+                                      Explanation by Video
+                                    </p>
+                                    <video controls className="w-full rounded">
+                                      <source
+                                        src={expl.answerVideo}
+                                        type="video/mp4"
+                                      />
+                                    </video>
+                                  </div>
+                                )}
+                                {expl.answerPdf && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-bold text-gray-400 uppercase">
+                                      Explanation by PDF
+                                    </p>
+                                    <a
+                                      href={expl.answerPdf}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block text-blue-600 underline"
+                                    >
+                                      View Document
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-gray-400 text-sm">
+                              No explanation available.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {q.hasParallel && (
                       <div className="mt-3">
                         <button
@@ -607,6 +714,7 @@ const ExamResultReview = ({ result, examId }) => {
         </div>
       )}
 
+      {/* Questions to Review (Mistakes) Section */}
       <h3 className="font-bold text-lg text-slate-800 mb-4">
         Questions to Review ({mistakes.length})
       </h3>

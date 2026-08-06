@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { TbMathFunction, TbUserCircle, TbArrowBackUp } from "react-icons/tb";
 import { Toaster, toast } from "react-hot-toast";
 import api from "../api/api";
-
+import Favlogo from "../../public/favicon.svg";
 const AdminLayout = () => {
   const navigator = useNavigate();
   const [isImpersonated, setIsImpersonated] = useState(false);
@@ -47,8 +47,8 @@ const AdminLayout = () => {
       {/* Navbar */}
       <nav className="h-16 bg-white border-b border-slate-200 fixed top-0 w-full z-50 px-6 flex items-center justify-between shadow-sm">
         <button onClick={()=>navigator("/user/home")} className="flex items-center gap-2">
-          <div className="bg-one p-1.5 rounded-lg">
-            <TbMathFunction className="text-white text-xl" />
+          <div className=" p-1.5 rounded-lg">
+         <img src={Favlogo} alt="Logo" className="w-6 h-6" />
           </div>
 
           <span className="text-lg font-bold text-slate-800 tracking-tight">

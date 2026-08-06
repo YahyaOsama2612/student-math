@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
 import Errorpage from "../../components/Errorpage";
@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ArrowLeft,
   LayoutGrid,
-  Calculator,
   LineChart as LineChartIcon,
   X,
 } from "lucide-react";
@@ -24,12 +23,8 @@ import Matrix from "../../components/Desmos/Matrix";
 import Fourfunction from "../../components/Desmos/Fourfunction";
 import Geometry from "../../components/Desmos/Geometry";
 import D3 from "../../components/Desmos/D3";
-import { TbMatrix } from "react-icons/tb";
-import { TbMathOff } from "react-icons/tb";
-import { TbGeometry } from "react-icons/tb";
+import { TbMatrix, TbMathOff, TbGeometry } from "react-icons/tb";
 import { MdOutline3dRotation } from "react-icons/md";
-
-import { useLocation, useNavigate } from "react-router-dom";
 
 // ─── GridInInput Component ───────────────────────────────────────────────────
 const evaluateExpression = (expr) => {
@@ -193,12 +188,11 @@ const GridInInput = ({ value, onChange }) => {
   );
 };
 
-// أضفنا هنا onExit المستقبلة من المكون الأب لتقوم بإغلاق الامتحان
+// ─── ActiveExam Component ────────────────────────────────────────────────────
 const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const params = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isToolsOpen, setIsToolsOpen] = useState(false);
 
   const examMode =
     examModeProp ||
@@ -227,7 +221,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const [showGeometry, setShowGeometry] = useState(false);
   const [showD3, setShowD3] = useState(false);
 
-  const { postData, loading: userLoading, error: userError } = usePost("");
+  const { postData, loading: userLoading } = usePost("");
 
   const [timeLeft, setTimeLeft] = useState(diagnosticDuration * 60 || 60 * 60);
   const [isImageZoomed, setIsImageZoomed] = useState(false);
@@ -335,13 +329,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const questions = useMemo(() => {
     if (examMode === "exam") {
       if (!rawExam?.sections) {
-        if (apiResponse) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            "ActiveExam: couldn't find exam.sections in the /questions response — check the shape below:",
-            apiResponse,
-          );
-        }
         return [];
       }
       return [...rawExam.sections]
@@ -370,16 +357,12 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const question = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
-  // For "exam" mode the duration comes back from the API itself, so the
-  // timer has to be (re)synced once the request resolves.
   useEffect(() => {
     if (examMode === "exam" && rawExam?.duration) {
       setTimeLeft(rawExam.duration * 60);
     }
   }, [examMode, rawExam?.duration]);
 
-  // If the attempt was already finished (e.g. user reopened the tab),
-  // send them straight to the review page instead of letting them re-answer.
   useEffect(() => {
     if (
       examMode === "exam" &&
@@ -392,8 +375,8 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   }, [examMode, rawAttempt, navigate]);
 
   const getNavButtonSize = (count) => {
-    if (count <= 10) return "w-10 h-10 text-sm";
-    if (count <= 20) return "w-9 h-9 text-[12px]";
+    if (count <= 10) return "w-9 h-9 text-sm";
+    if (count <= 20) return "w-8 h-8 text-[12px]";
     if (count <= 40) return "w-7 h-7 text-[11px]";
     if (count <= 60) return "w-6 h-6 text-[10px]";
     return "w-5 h-5 text-[9px]";
@@ -401,7 +384,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const navBtnSize = getNavButtonSize(questions.length);
 
-  // منطق العداد الزمني
   useEffect(() => {
     if (timeLeft <= 0) return;
     const timer = setInterval(() => {
@@ -411,20 +393,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   }, [timeLeft]);
 
   const handleBack = async () => {
-   /*  const result = await Swal.fire({
-      title: "Leave the exam?",
-      text: "Are you sure you want to go back? You won't be able to re-enter this exam.",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#dc2626",
-      cancelButtonColor: "#4f46e5",
-      confirmButtonText: "Yes, leave",
-      cancelButtonText: "Stay",
-      reverseButtons: true,
-    });
-
-    if (!result.isConfirmed) return; */
-
     if (onExit) {
       onExit();
     } else {
@@ -432,7 +400,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     }
   };
 
-  // دالة لتحويل الثواني إلى تنسيق 00:00
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -443,12 +410,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     setAnswers({ ...answers, [question.id]: value });
   };
 
-  // Single source of truth for "did the student actually answer this
-  // question". A grid-in field that only contains whitespace (e.g. a
-  // stray space typed on a physical keyboard) must NOT count as answered —
-  // previously the nav dots used a plain truthy check while the counter
-  // trimmed first, so the two could disagree (dots showing 20/20 solved
-  // while the counter said 19/20).
   const isAnswered = (value) =>
     value !== undefined && value !== null && value.toString().trim() !== "";
 
@@ -475,9 +436,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       if (!result.isConfirmed) return;
     }
 
-    // Grid-in values are stored as the raw typed expression (e.g. "11/2").
-    // The backend expects the evaluated numeric value (e.g. "5.5"), so we
-    // resolve it here instead of relying on the student opening the Preview tab.
     const resolveGridInValue = (rawValue) => {
       const raw = rawValue.toString();
       const evaluated = evaluateExpression(raw);
@@ -489,8 +447,6 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       const isMCQ = questionObj?.answerType === "MCQ";
 
       if (examMode === "exam") {
-        // /api/user/exams/{id}/submit expects both keys present,
-        // with the unused one set to null.
         return {
           questionId,
           selectedOptionId: isMCQ ? value : null,
@@ -498,20 +454,14 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
         };
       }
 
-      // /api/user/diagnostic-exams/{examId}/submit
       return {
         questionId,
         answerId: value,
       };
     });
 
-    // Exam submissions only need { answers }: the backend resolves the
-    // in-progress attempt from the exam id in the URL. Diagnostic
-    // submissions are the same shape on the wire.
     const payload = { answers: formattedAnswers };
 
-    // Diagnostic exams submit against the attempt id; full exams submit
-    // against the exam id itself (backend resolves the in-progress attempt).
     const submitUrl =
       examMode === "exam"
         ? `/api/user/exams/${id}/submit`
@@ -528,16 +478,10 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
         title: "Well done! 🎉",
         text: "Your exam has been submitted. Let’s review your answers.",
         icon: "success",
-        // confirmButtonText: "Let's Review",
         confirmButtonColor: "#4f46e5",
       });
 
       navigate(`/user/review/${attemptId}`, {
-        // For a full exam, the submit response already contains everything
-        // Review needs (score, pass/fail, mistakes) — forward it so Review
-        // renders directly from this instead of calling the diagnostic
-        // review endpoint. Diagnostic submissions get no state, so Review
-        // falls back to its normal diagnostic-review fetch.
         state:
           examMode === "exam"
             ? {
@@ -574,7 +518,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   if (questions.length === 0)
     return (
-      <div className="w-screen h-screen bg-gray-50 flex flex-col font-sans p-4 relative">
+      <div className="w-full h-screen bg-gray-50 flex flex-col font-sans p-4 relative">
         <div className="w-full flex justify-start">
           <button
             onClick={handleBack}
@@ -590,8 +534,8 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     );
 
   return (
-    <div className="bg-gray-50 flex flex-col items-center relative w-screen overflow-x-hidden font-sans pb-4 px-4 pt-4">
-      {/* --- نافذة تكبير الصورة (Full Screen Image) --- */}
+    <div className="bg-gray-50 flex flex-col items-center relative w-full overflow-x-hidden font-sans pb-4 px-4 pt-1">
+      {/* Full Screen Image */}
       {isImageZoomed && question.image && (
         <div
           className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
@@ -608,230 +552,55 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
         </div>
       )}
 
-      {(showGraph ||
-        showScientific ||
-        showMatrix ||
-        showFourfunction ||
-        showGeometry ||
-        showD3) && (
-        <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 animate-in fade-in duration-200"
-          onClick={() => {
-            setShowGraph(false);
-            setShowD3(false);
-            setShowScientific(false);
-            setShowMatrix(false);
-            setShowFourfunction(false);
-            setShowGeometry(false);
-          }}
-        />
-      )}
-
-      {showGraph && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Graphing
-              Tool
-            </span>
-            <button
-              onClick={() => setShowGraph(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <GraphViewer />
-          </div>
-        </div>
-      )}
-
-      {showScientific && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Scientific
-              Tool
-            </span>
-            <button
-              onClick={() => setShowScientific(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <Scientific />
-          </div>
-        </div>
-      )}
-
-      {showD3 && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> 3D Tool
-            </span>
-            <button
-              onClick={() => setShowD3(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <D3 />
-          </div>
-        </div>
-      )}
-
-      {showMatrix && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Matrix
-              Tool
-            </span>
-            <button
-              onClick={() => setShowMatrix(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <Matrix />
-          </div>
-        </div>
-      )}
-
-      {showFourfunction && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" />{" "}
-              Fourfunction Tool
-            </span>
-            <button
-              onClick={() => setShowFourfunction(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <Fourfunction />
-          </div>
-        </div>
-      )}
-
-      {showGeometry && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] h-[98vh] z-50 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-          <div className="flex justify-between items-center px-4 py-2 border-b bg-gray-50">
-            <span className="text-xs font-bold text-gray-600 flex items-center gap-2">
-              <LineChartIcon size={14} className="text-purple-600" /> Geometry
-              Tool
-            </span>
-            <button
-              onClick={() => setShowGeometry(false)}
-              className="text-gray-400 hover:text-black"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <Geometry />
-          </div>
-        </div>
-      )}
-
-      <div className="w-full flex justify-between items-center mb-4 z-30">
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-2 text-gray-400 hover:text-gray-900 transition-colors font-medium text-sm shrink-0"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
-
-        {/* الجزء الأيمن: أدوات الـ Desmos والوقت */}
-        <div className="flex items-center gap-2 relative">
-          {/* أضفنا الزر هنا ليظهر بجانب الأدوات */}
-          {availableTools.length > 0 && (
-            <button
-              onClick={() => setIsToolsOpen(!isToolsOpen)}
-              className="bg-one text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all z-40"
-            >
-              <LayoutGrid size={16} /> Tools
-            </button>
-          )}
-
-          {/* قائمة الأدوات المنسدلة */}
-          {isToolsOpen && availableTools.length > 0 && (
-            <div
-              className="absolute top-full right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[100] p-2 flex flex-col animate-in fade-in zoom-in-95 duration-200"
-              style={{ maxHeight: "calc(100vh - 100px)", overflowY: "auto" }}
-            >
-              <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                Available Tools
-              </div>
-
-              {availableTools.map((tool) => (
-                <button
-                  key={tool.name}
-                  onClick={() => {
-                    tool.setter(!tool.state);
-                    setIsToolsOpen(false);
-                  }}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
-                    tool.state
-                      ? "bg-purple-600 text-white shadow-md"
-                      : "hover:bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  <span className={tool.state ? "text-white" : "text-gray-400"}>
-                    {tool.icon}
-                  </span>
-                  {tool.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div
-            className={`flex shrink-0 items-center gap-3 px-6 py-3 rounded-2xl font-black border-2 text-lg shadow-sm transition-colors ${
-              timeLeft < 300
-                ? "bg-red-50 text-red-600 border-red-200"
-                : "bg-white text-one border-one/20"
-            }`}
-          >
-            <Clock
-              size={22}
-              className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
-            />
-            <span className="tabular-nums tracking-widest text-xl">
-              {formatTime(timeLeft)}
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* Main Container */}
-      <div className="w-full flex flex-col gap-3">
-        {/* Navigator */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 w-fit">
-          <div className="flex items-center gap-2 mb-2 font-bold text-gray-400 uppercase text-[9px] tracking-widest">
-            <LayoutGrid size={12} className="text-one" /> Questions
+      <div className="w-full flex flex-col gap-2">
+        {/* COMPACT HEADER: Back, Navigator, and Timer on one line */}
+        <div className="w-full flex flex-wrap md:flex-nowrap justify-between items-center gap-3 z-30 bg-gray-50 pb-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Back Button */}
+            <button
+              onClick={handleBack}
+              className="flex items-center gap-1 text-gray-400 hover:text-gray-900 transition-colors font-medium text-sm shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+
+            {/* Questions Navigator */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-1.5 flex items-center gap-2">
+              <div className="hidden md:flex items-center gap-1 font-bold text-gray-400 uppercase text-[9px] tracking-widest px-1">
+                <LayoutGrid size={12} className="text-one" /> Qs
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {questions?.map((q, index) => (
+                  <button
+                    key={q.id}
+                    onClick={() => setCurrentQuestionIndex(index)}
+                    className={`${navBtnSize} rounded-md font-bold transition-all ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${isAnswered(answers[q.id]) ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1 w-fit">
-            {questions?.map((q, index) => (
-              <button
-                key={q.id}
-                onClick={() => setCurrentQuestionIndex(index)}
-                className={`${navBtnSize} rounded-md font-bold transition-all ${currentQuestionIndex === index ? "ring-2 ring-one/30 border border-one" : "border border-transparent"} ${isAnswered(answers[q.id]) ? "bg-one text-white" : "bg-gray-50 text-gray-400 hover:bg-gray-100"}`}
-              >
-                {index + 1}
-              </button>
-            ))}
+
+          {/* Timer */}
+          <div className="flex items-center shrink-0">
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black border-2 text-sm shadow-sm transition-colors ${
+                timeLeft < 300
+                  ? "bg-red-50 text-red-600 border-red-200"
+                  : "bg-white text-one border-one/20"
+              }`}
+            >
+              <Clock
+                size={16}
+                className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
+              />
+              <span className="tabular-nums tracking-widest">
+                {formatTime(timeLeft)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -947,8 +716,68 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
           </div>
         </div>
 
+        {/* --- Tools Trigger Buttons --- */}
+        {availableTools.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col md:flex-row gap-3 md:items-center w-full mt-2">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 shrink-0">
+              <LayoutGrid size={12} className="text-one" /> Available Tools
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {availableTools.map((tool) => (
+                <button
+                  key={tool.name}
+                  onClick={() => tool.setter(!tool.state)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    tool.state
+                      ? "bg-purple-600 text-white shadow-md border border-purple-600"
+                      : "bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  <span className={tool.state ? "text-white" : "text-gray-400"}>
+                    {tool.icon}
+                  </span>
+                  {tool.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* --- Active Inline Tools Screens --- */}
+        <div className="flex flex-col gap-3">
+          {availableTools
+            .filter((tool) => tool.state)
+            .map((tool) => (
+              <div
+                key={tool.key}
+                className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px] md:h-[600px] animate-in fade-in duration-200"
+              >
+                <div className="flex justify-between items-center px-4 py-3 border-b bg-gray-50">
+                  <span className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <span className="text-one">{tool.icon}</span>
+                    {tool.name} Tool
+                  </span>
+                  <button
+                    onClick={() => tool.setter(false)}
+                    className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="flex-1 w-full relative">
+                  {tool.key === "graph" && <GraphViewer />}
+                  {tool.key === "scientific" && <Scientific />}
+                  {tool.key === "matrix" && <Matrix />}
+                  {tool.key === "fourfunction" && <Fourfunction />}
+                  {tool.key === "geometry" && <Geometry />}
+                  {tool.key === "3d" && <D3 />}
+                </div>
+              </div>
+            ))}
+        </div>
+
         {/* Controls */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-3 flex justify-between items-center">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-3 flex justify-between items-center mt-2">
           <button
             disabled={currentQuestionIndex === 0}
             onClick={() => setCurrentQuestionIndex((prev) => prev - 1)}
