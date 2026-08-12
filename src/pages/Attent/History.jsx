@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Calendar,
   Clock,
@@ -9,6 +10,9 @@ import {
   XCircle,
   ArrowRight,
   MinusCircle,
+  ExternalLink,
+  Eye,
+  X,
 } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -19,9 +23,44 @@ import AOS from "aos";
 import "aos/dist/aos.css";
 
 const History = () => {
+  const navigate = useNavigate();
   const { data, loading, error, refetch } = useGet(
     "/api/user/sessions/history",
   );
+
+  // مودال عرض محتوى الحصة (سيشن لينك)
+  const [previewModal, setPreviewModal] = useState({
+    isOpen: false,
+    url: "",
+    title: "",
+  });
+  const modalRef = useRef(null);
+
+  // بيحول أي لينك جوجل درايف لصيغة قابلة للـ embed جوه الـ iframe
+  const getEmbedUrl = (url) => {
+    if (!url) return "";
+    const driveIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
+    if (driveIdMatch && driveIdMatch[1]) {
+      return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
+    }
+    return url;
+  };
+
+  const handlePreviewSession = (rawUrl, title) => {
+    setPreviewModal({
+      isOpen: true,
+      url: getEmbedUrl(rawUrl),
+      title,
+    });
+  };
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      modalRef.current?.requestFullscreen().catch((err) => console.error(err));
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   // الأوقات (timeFrom/timeTo) بتتخزن وتتبعت من الباك اند بتوقيت UTC،
   // فبنحولها هنا لتوقيت جهاز اليوزر قبل ما نعرضها
@@ -203,36 +242,51 @@ const History = () => {
                       {session.lessons.map((lesson) => (
                         <li
                           key={lesson.id}
-                          className="flex items-start gap-3 text-base text-slate-600"
+                          className="flex items-start justify-between gap-3 text-base text-slate-600"
                         >
-                          <CheckCircle2
-                            size={20}
-                            className="text-emerald-500 mt-0.5 shrink-0"
-                          />
-                          <div>
-                            <span className="font-bold text-slate-800 block leading-tight text-base">
-                              {lesson.name}
-                            </span>
-                            <span className="text-xs font-medium text-slate-500 capitalize mt-1 block">
-                              {lesson.course.name} • {lesson.chapter.name}
-                            </span>
+                          <div className="flex items-start gap-3">
+                            <CheckCircle2
+                              size={20}
+                              className="text-emerald-500 mt-0.5 shrink-0"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-800 block leading-tight text-base">
+                                {lesson.name}
+                              </span>
+                              <span className="text-xs font-medium text-slate-500 capitalize mt-1 block">
+                                {lesson.course.name} • {lesson.chapter.name}
+                              </span>
+                            </div>
                           </div>
+
+                          {/* View Material Button - lesson content details page */}
+                          <button
+                            onClick={() =>
+                              navigate(`/user/contentdetails/${lesson.id}`, {
+                                state: { contentType: "lessons" },
+                              })
+                            }
+                            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye size={14} />
+                           lesson Material
+                          </button>
                         </li>
                       ))}
                     </ul>
                   </div>
 
-                  {/* CTA Button */}
-                  {session.sessionLink ? (
-                    <a
-                      href={session.sessionLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {/* CTA Button - Session Content Preview */}
+                  {session.materialLink ? (
+                    <button
+                      onClick={() =>
+                        handlePreviewSession(session.materialLin, session.name)
+                      }
                       className="mt-auto flex items-center justify-center gap-2 w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 hover:text-slate-900 transition-all active:scale-[0.98]"
                     >
-                      Review Material
+                   Session  Material
                       <ArrowRight size={18} />
-                    </a>
+                    </button>
                   ) : (
                     <button
                       disabled
@@ -263,6 +317,58 @@ const History = () => {
               </p>
             </div>
           )
+        )}
+
+        {/* --- Session Content Preview Modal --- */}
+        {previewModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div
+              ref={modalRef}
+              className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+            >
+              <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
+                <h3 className="font-bold text-gray-900 truncate text-sm sm:text-base">
+                  {previewModal.title}
+                </h3>
+                <div className="flex items-center gap-2">
+                  {/* Open in New Tab */}
+                  <a
+                    href={previewModal.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
+                  >
+                    <ExternalLink size={14} />
+                    Open
+                  </a>
+                  {/* Full Screen Toggle */}
+                  <button
+                    onClick={toggleFullScreen}
+                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                  >
+                    Full Screen
+                  </button>
+                  {/* Close */}
+                  <button
+                    onClick={() =>
+                      setPreviewModal({ isOpen: false, url: "", title: "" })
+                    }
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 bg-gray-900">
+                <iframe
+                  src={previewModal.url}
+                  title={previewModal.title}
+                  className="w-full h-full border-0"
+                  allowFullScreen
+                ></iframe>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );

@@ -368,6 +368,38 @@ const Payment = () => {
     return eligible;
   }, [purchaseHistory]);
 
+  // خريطة تربط كل باقة بحالتها: هل الطالب امتلكها بالفعل، وهل هو مؤهل لترقيتها بإضافة الإجابات
+  const packageStatusById = useMemo(() => {
+    const rowsByPackage = new Map();
+    purchaseHistory.forEach((row) => {
+      const list = rowsByPackage.get(row.package.id) || [];
+      list.push(row);
+      rowsByPackage.set(row.package.id, list);
+    });
+
+    const statusMap = new Map();
+    rowsByPackage.forEach((rows, packageId) => {
+      const owned = rows.some((r) => r.status === "completed");
+      const upgradeAlreadyRequested = rows.some(
+        (r) => r.reason === "answers_upgrade",
+      );
+      const candidate = rows.find(
+        (r) =>
+          r.status === "completed" &&
+          r.includedAnswers === true &&
+          r.package?.hasAnswers,
+      );
+      const canUpgrade = !upgradeAlreadyRequested && !!candidate;
+
+      statusMap.set(packageId, {
+        owned,
+        canUpgrade,
+        upgradeSourceId: candidate?.id || null,
+      });
+    });
+    return statusMap;
+  }, [purchaseHistory]);
+
   const getStatusBadge = (status) => {
     switch (status) {
       case "completed":
@@ -647,7 +679,12 @@ const Payment = () => {
         {/* ─── TAB 2: BUY PACKAGES ─── */}
         {activeMainTab === "packages" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-            {packages.map((pkg) => (
+            {packages.map((pkg) => {
+              const pkgStatus = packageStatusById.get(pkg.id);
+              const isOwned = pkgStatus?.owned;
+              const canUpgrade = pkgStatus?.canUpgrade;
+
+              return (
               <div
                 key={pkg.id}
                 className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-8 hover:border-one transition-all duration-500 group relative shadow-sm"
@@ -700,20 +737,43 @@ const Payment = () => {
                     </div>
                   </div>
                 )}
-                <button
-                  onClick={() => {
-                    setCheckoutMode("buy");
-                    setUpgradeSourceId(null);
-                    setSelectedPackage(pkg);
-                    resetPromoState();
-                    setIsModalOpen(true);
-                  }}
-                  className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
-                >
-                  BUY PACKAGE
-                </button>
+                {canUpgrade ? (
+                  <button
+                    onClick={() => {
+                      setCheckoutMode("upgrade");
+                      setSelectedPackage(pkg);
+                      setUpgradeSourceId(pkgStatus.upgradeSourceId);
+                      resetPromoState();
+                      setIsModalOpen(true);
+                    }}
+                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
+                  >
+                    UPGRADE WITH ANSWERS
+                  </button>
+                ) : isOwned ? (
+                  <button
+                    disabled
+                    className="w-full py-4 bg-gray-100 text-gray-400 rounded-2xl font-black cursor-not-allowed"
+                  >
+                    OWNED
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setCheckoutMode("buy");
+                      setUpgradeSourceId(null);
+                      setSelectedPackage(pkg);
+                      resetPromoState();
+                      setIsModalOpen(true);
+                    }}
+                    className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
+                  >
+                    BUY PACKAGE
+                  </button>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
