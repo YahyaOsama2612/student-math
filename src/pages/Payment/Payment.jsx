@@ -46,6 +46,7 @@ const Payment = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [checkoutMode, setCheckoutMode] = useState("buy"); // buy | upgrade
   const [upgradeSourceId, setUpgradeSourceId] = useState(null); // id of the package-buy history row being upgraded
+  const [includeAnswersAddon, setIncludeAnswersAddon] = useState(false); // true when buying a package together with the answers add-on
   // --- الـ States الخاصة بكود الخصم في مودال شراء الباقة ---
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState(null);
@@ -203,6 +204,10 @@ const Payment = () => {
         amount: upgradeAmount,
         reason: "answers_upgrade",
       }),
+      ...(!isUpgrade &&
+        includeAnswersAddon && {
+          includedAnswers: true,
+        }),
     };
 
     try {
@@ -220,6 +225,7 @@ const Payment = () => {
         setReceiptImg("");
         setCheckoutMode("buy");
         setUpgradeSourceId(null);
+        setIncludeAnswersAddon(false);
         resetPromoState();
         refetchPackHistory();
       }
@@ -273,7 +279,10 @@ const Payment = () => {
   const basePackagePrice =
     (checkoutMode === "upgrade"
       ? Number(selectedPackage?.answersPrice)
-      : Number(selectedPackage?.price)) || 0;
+      : Number(selectedPackage?.price) +
+        (includeAnswersAddon
+          ? Number(selectedPackage?.answersPrice) || 0
+          : 0)) || 0;
   const discountedPackagePrice = appliedPromo
     ? basePackagePrice - (basePackagePrice * appliedPromo.discountAmount) / 100
     : basePackagePrice;
@@ -685,93 +694,134 @@ const Payment = () => {
               const canUpgrade = pkgStatus?.canUpgrade;
 
               return (
-              <div
-                key={pkg.id}
-                className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-8 hover:border-one transition-all duration-500 group relative shadow-sm"
-              >
-                <h3 className="text-2xl font-black text-gray-800 mb-2">
-                  {pkg.name}
-                </h3>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-black text-one">
-                    {pkg.price}
-                  </span>
-                  <span className="text-gray-400 font-bold text-sm uppercase">
-                    EGP
-                  </span>
-                </div>
-                {pkg.hasAnswers && Number(pkg.answersPrice) > 0 && (
-                  <div className="mb-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-sky-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-5 w-5 text-blue-600"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M9 12h6m-3-3v6m9-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </div>
+                <div
+                  key={pkg.id}
+                  className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-8 hover:border-one transition-all duration-500 group relative shadow-sm"
+                >
+                  <h3 className="text-2xl font-black text-gray-800 mb-2">
+                    {pkg.name}
+                  </h3>
+                  <div className="flex items-baseline gap-1 mb-6">
+                    <span className="text-4xl font-black text-one">
+                      {pkg.price}
+                    </span>
+                    <span className="text-gray-400 font-bold text-sm uppercase">
+                      EGP
+                    </span>
+                  </div>
+                  {pkg.hasAnswers && Number(pkg.answersPrice) > 0 && (
+                    <div className="mb-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-sky-50 p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5 text-blue-600"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 12h6m-3-3v6m9-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
 
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-blue-700">
-                          Answers Review Add-on
-                        </p>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-blue-700">
+                            Answers Review Add-on
+                          </p>
 
-                        <p className="mt-1 text-xs text-gray-600 leading-5">
-                          Unlock answer reviews for only{" "}
-                          <span className="font-bold text-blue-700">
-                            +{pkg.answersPrice} EGP
-                          </span>
-                          . Purchase this add-on first, then you can upgrade
-                          your package with answers anytime.
-                        </p>
+                          <p className="mt-1 text-xs text-gray-600 leading-5">
+                            Unlock answer reviews for only{" "}
+                            <span className="font-bold text-blue-700">
+                              +{pkg.answersPrice} EGP
+                            </span>
+                            . Purchase this add-on first, then you can upgrade
+                            your package with answers anytime.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-                {canUpgrade ? (
-                  <button
-                    onClick={() => {
-                      setCheckoutMode("upgrade");
-                      setSelectedPackage(pkg);
-                      setUpgradeSourceId(pkgStatus.upgradeSourceId);
-                      resetPromoState();
-                      setIsModalOpen(true);
-                    }}
-                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
-                  >
-                    UPGRADE WITH ANSWERS
-                  </button>
-                ) : isOwned ? (
-                  <button
-                    disabled
-                    className="w-full py-4 bg-gray-100 text-gray-400 rounded-2xl font-black cursor-not-allowed"
-                  >
-                    OWNED
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setCheckoutMode("buy");
-                      setUpgradeSourceId(null);
-                      setSelectedPackage(pkg);
-                      resetPromoState();
-                      setIsModalOpen(true);
-                    }}
-                    className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
-                  >
-                    BUY PACKAGE
-                  </button>
-                )}
-              </div>
+                  )}
+                  {isOwned && canUpgrade ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        disabled
+                        className="py-4 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 rounded-2xl font-black cursor-not-allowed flex items-center justify-center gap-1.5"
+                      >
+                        <Check size={16} strokeWidth={3} />
+                        OWNED
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCheckoutMode("upgrade");
+                          setSelectedPackage(pkg);
+                          setUpgradeSourceId(pkgStatus.upgradeSourceId);
+                          setIncludeAnswersAddon(false);
+                          resetPromoState();
+                          setIsModalOpen(true);
+                        }}
+                        className="py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
+                      >
+                        UPGRADE
+                      </button>
+                    </div>
+                  ) : isOwned ? (
+                    <button
+                      disabled
+                      className="w-full py-4 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 rounded-2xl font-black cursor-not-allowed flex items-center justify-center gap-1.5"
+                    >
+                      <Check size={16} strokeWidth={3} />
+                      OWNED
+                    </button>
+                  ) : pkg.hasAnswers && Number(pkg.answersPrice) > 0 ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => {
+                          setCheckoutMode("buy");
+                          setUpgradeSourceId(null);
+                          setIncludeAnswersAddon(false);
+                          setSelectedPackage(pkg);
+                          resetPromoState();
+                          setIsModalOpen(true);
+                        }}
+                        className="py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
+                      >
+                        BUY PACKAGE
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCheckoutMode("buy");
+                          setUpgradeSourceId(null);
+                          setIncludeAnswersAddon(true);
+                          setSelectedPackage(pkg);
+                          resetPromoState();
+                          setIsModalOpen(true);
+                        }}
+                        className="py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
+                      >
+                        BUY WITH ADDONS
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setCheckoutMode("buy");
+                        setUpgradeSourceId(null);
+                        setIncludeAnswersAddon(false);
+                        setSelectedPackage(pkg);
+                        resetPromoState();
+                        setIsModalOpen(true);
+                      }}
+                      className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
+                    >
+                      BUY PACKAGE
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -1022,6 +1072,12 @@ const Payment = () => {
                   <span className="text-one font-bold">
                     {selectedPackage?.name}
                   </span>
+                  {checkoutMode !== "upgrade" && includeAnswersAddon && (
+                    <span className="text-blue-600 font-bold">
+                      {" "}
+                      + Answers Add-on
+                    </span>
+                  )}
                 </p>
               </div>
               <button
@@ -1029,6 +1085,7 @@ const Payment = () => {
                   setIsModalOpen(false);
                   setCheckoutMode("buy");
                   setUpgradeSourceId(null);
+                  setIncludeAnswersAddon(false);
                   resetPromoState();
                 }}
                 className="text-gray-400 hover:text-red-500 text-3xl font-light"
@@ -1141,20 +1198,22 @@ const Payment = () => {
                         {appliedPromo ? (
                           <>
                             <span className="line-through opacity-60 mr-1">
-                              {checkoutMode === "upgrade"
-                                ? selectedPackage?.answersPrice
-                                : selectedPackage?.price}
+                              {basePackagePrice}
                             </span>
                             {discountedPackagePrice.toFixed(2)}
                           </>
-                        ) : checkoutMode === "upgrade" ? (
-                          selectedPackage?.answersPrice
                         ) : (
-                          selectedPackage?.price
+                          basePackagePrice
                         )}{" "}
                         EGP
                       </span>{" "}
                       to the wallet number, then upload the screenshot below.
+                      {checkoutMode !== "upgrade" && includeAnswersAddon && (
+                        <span className="block mt-1 text-[10px] font-bold text-blue-600 not-italic">
+                          Includes the Answers Review Add-on (+
+                          {selectedPackage?.answersPrice} EGP)
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="relative border-2 border-dashed border-gray-200 rounded-[2rem] p-8 text-center hover:bg-gray-50 transition-all cursor-pointer group">
@@ -1188,18 +1247,20 @@ const Payment = () => {
                     {appliedPromo ? (
                       <>
                         <span className="line-through opacity-60 mr-1">
-                          {checkoutMode === "upgrade"
-                            ? selectedPackage?.answersPrice
-                            : selectedPackage?.price}
+                          {basePackagePrice}
                         </span>
                         {discountedPackagePrice.toFixed(2)}
                       </>
-                    ) : checkoutMode === "upgrade" ? (
-                      selectedPackage?.answersPrice
                     ) : (
-                      selectedPackage?.price
+                      basePackagePrice
                     )}{" "}
                     EGP:
+                    {checkoutMode !== "upgrade" && includeAnswersAddon && (
+                      <span className="block text-[10px] font-normal opacity-80">
+                        Includes the Answers Review Add-on (+
+                        {selectedPackage?.answersPrice} EGP)
+                      </span>
+                    )}
                     <br />
                     <span className="font-normal opacity-70 text-[10px]">
                       You'll be redirected to a secure payment gateway.
