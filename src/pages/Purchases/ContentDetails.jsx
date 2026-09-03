@@ -26,7 +26,7 @@ const ContentDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { postData, loading: startingQuiz } = usePost();
-
+  const [loadingQuizId, setLoadingQuizId] = useState(null);
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     url: "",
@@ -385,8 +385,9 @@ const ContentDetails = () => {
                       </div>
                     </div>
                     <button
-                      disabled={startingQuiz}
+                      disabled={loadingQuizId === quiz.id}
                       onClick={async () => {
+                        setLoadingQuizId(quiz.id);
                         try {
                           const res = await postData(
                             {},
@@ -396,11 +397,13 @@ const ContentDetails = () => {
                           if (res) navigate(`/user/quiz/${quiz.id}`);
                         } catch (err) {
                           console.error(err);
+                        } finally {
+                          setLoadingQuizId(null); // إيقاف التحميل
                         }
                       }}
                       className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors shadow-sm cursor-pointer"
                     >
-                      {startingQuiz ? "Starting..." : "Start Quiz"}
+                      {loadingQuizId === quiz.id ? "Starting..." : "Start Quiz"}
                     </button>
                   </div>
                 ))}

@@ -4,14 +4,14 @@ import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import ParallelQuestions from "./ParallelQuestions";
 
 const Review = () => {
   const { attemptId } = useParams();
   const location = useLocation();
   const [expandedRow, setExpandedRow] = useState(null);
+  const [loadingParallelId, setLoadingParallelId] = useState(null);
+  const [parallelData, setParallelData] = useState(null);
 
   const examResult =
     location.state?.examMode === "exam" ? location.state?.examResult : null;
@@ -21,6 +21,8 @@ const Review = () => {
       ? null
       : `/api/user/diagnostic-exams/attempts/${attemptId}/review`,
   );
+
+  const { postData } = usePost();
 
   if (examResult) {
     return (
@@ -70,55 +72,38 @@ const Review = () => {
     }
   };
 
-  const downloadQuestionsReport = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text("Questions Report", 14, 15);
-    autoTable(doc, {
-      head: [["#", "Question"]],
-      body: questions.map((q, index) => [
-        index + 1,
-        q.questionText.replace(/<[^>]*>/g, ""),
-      ]),
-      startY: 25,
-    });
-    doc.save(`questions-report-${attemptId}.pdf`);
+  const handleSolveParallel = async (questionId) => {
+    try {
+      setLoadingParallelId(questionId);
+
+      const resData = await postData(
+        {
+          attemptId: attemptId,
+          questionIds: [questionId],
+        },
+        "https://bcknd.mathshouse.net/api/user/diagnostic-exams/parallel/questions",
+      );
+
+      setParallelData(resData?.data ?? null);
+
+      // Navigate the user down to the parallel-questions panel once it renders.
+      requestAnimationFrame(() => {
+        document
+          .getElementById("parallel-questions-panel")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } catch (err) {
+      console.error("Error solving parallel question:", err);
+    } finally {
+      setLoadingParallelId(null);
+    }
   };
 
-  const downloadIncorrectWithRecap = () => {
-    const doc = new jsPDF();
-    doc.text("Incorrect Questions & Recommendations", 14, 15);
-    autoTable(doc, {
-      head: [["#", "Question", "Recap Lesson"]],
-      body: questions
-        .filter((q) => !q.isCorrect)
-        .map((q, index) => [
-          index + 1,
-          q.questionText.replace(/<[^>]*>/g, ""),
-          q.recommendationToRecap?.lessonName || "N/A",
-        ]),
-      startY: 25,
-    });
-    doc.save(`incorrect-recap-${attemptId}.pdf`);
-  };
+  const studentBalances = data?.data?.studentBalances;
+  const { packageBalance } = studentBalances || {};
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex flex-wrap gap-3 mb-6">
-        <button
-          onClick={downloadQuestionsReport}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          Download Questions
-        </button>
-        <button
-          onClick={downloadIncorrectWithRecap}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-        >
-          Export Incorrect & Recap
-        </button>
-      </div>
-
       <div className="flex flex-col md:flex-row gap-6 mb-8">
         <div className="flex-1 border border-green-200 bg-green-50 p-6 rounded-xl shadow-sm">
           <h3 className="text-green-800 font-bold text-lg mb-4">
@@ -154,6 +139,21 @@ const Review = () => {
         </div>
       </div>
 
+      {packageBalance !== undefined && (
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50">
+          <div className="flex flex-wrap gap-6">
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase">
+                Remaining Packages
+              </p>
+              <p className="text-lg font-semibold text-slate-800">
+                {packageBalance ?? "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-5">
         {questions.map((q, index) => (
           <div
@@ -185,95 +185,26 @@ const Review = () => {
               dangerouslySetInnerHTML={{ __html: q.questionText }}
             />
 
-            <button
-              onClick={() => toggleExplanation(index)}
-              className="mt-2 px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-all font-semibold shadow-md"
-            >
-              {expandedRow === index ? "Hide explanation" : "View explanation"}
-            </button>
-
-            {expandedRow === index && (
-              <div className="mt-4 p-4 bg-white border rounded-lg shadow-inner">
-                <h4 className="font-bold mb-3 text-slate-700 border-b pb-2">
-                  💡 Explanation & Recap
-                </h4>
-
-                {q.explanation && q.explanation.length > 0
-                  ? q.explanation.map((expl, idx) => (
-                      <div key={expl.id || idx}>
-                        {expl.answerText && (
-                          <div className="mb-4">
-                            <p className="text-xs font-bold text-gray-400 uppercase">
-                              Explanation by Text
-                            </p>
-                            <div
-                              className="text-sm text-gray-700"
-                              dangerouslySetInnerHTML={{
-                                __html: expl.answerText,
-                              }}
-                            />
-                          </div>
-                        )}
-                        {expl.answerImage && (
-                          <div className="mb-4">
-                            <p className="text-xs font-bold text-gray-400 uppercase">
-                              Explanation by Image
-                            </p>
-                            <img
-                              src={expl.answerImage}
-                              className="w-full max-w-xs rounded border"
-                              alt="Explanation"
-                            />
-                          </div>
-                        )}
-                        {expl.answerVideo && (
-                          <div className="mb-4">
-                            <p className="text-xs font-bold text-gray-400 uppercase">
-                              Explanation by Video
-                            </p>
-                            <video controls className="w-full rounded">
-                              <source src={expl.answerVideo} type="video/mp4" />
-                            </video>
-                          </div>
-                        )}
-                        {expl.answerPdf && (
-                          <div className="mb-4">
-                            <p className="text-xs font-bold text-gray-400 uppercase">
-                              Explanation by PDF
-                            </p>
-                            <a
-                              href={expl.answerPdf}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block text-blue-600 underline"
-                            >
-                              View Document
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  : !q.recommendationToRecap && (
-                      <p className="text-gray-400 text-sm">
-                        No explanation available.
-                      </p>
-                    )}
-
-                {q.recommendationToRecap && (
-                  <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-100 text-sm">
-                    <p className="font-bold text-blue-800">
-                      Recommended Recap:
-                    </p>
-                    <p>Course: {q.recommendationToRecap.courseName}</p>
-                    <p>Chapter: {q.recommendationToRecap.chapterName}</p>
-                    <p>Lesson: {q.recommendationToRecap.lessonName}</p>
-                  </div>
-                )}
-              </div>
+            {q.hasParallel && (
+              <button
+                onClick={() => handleSolveParallel(q.questionId)}
+                disabled={loadingParallelId === q.questionId}
+                className="mt-2 px-4 py-2 bg-indigo-600 text-white font-semibold text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+              >
+                {loadingParallelId === q.questionId
+                  ? "Loading..."
+                  : "Solve Parallel"}
+              </button>
             )}
           </div>
         ))}
       </div>
+
+      {parallelData && (
+        <div id="parallel-questions-panel" className="mt-8">
+          <ParallelQuestions data={parallelData} />
+        </div>
+      )}
     </div>
   );
 };

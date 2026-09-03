@@ -192,6 +192,11 @@ const Payment = () => {
       return toast.error("This package has no answers plan price set.");
     }
 
+    // للترقية: احسب السعر مع الخصم إن وجد
+    const upgradeAmountWithDiscount = appliedPromo
+      ? upgradeAmount - (upgradeAmount * appliedPromo.discountAmount) / 100
+      : upgradeAmount;
+
     const body = {
       packageId: selectedPackage.id,
       paymentMethodId: selectedMethod.id,
@@ -201,13 +206,15 @@ const Payment = () => {
         isUpgrade: true,
         includedAnswers: true,
         packageBuyId: upgradeSourceId,
-        amount: upgradeAmount,
+        amount: upgradeAmountWithDiscount,
         reason: "answers_upgrade",
       }),
-      ...(!isUpgrade &&
-        includeAnswersAddon && {
+      ...(!isUpgrade && {
+        amount: discountedPackagePrice,
+        ...(includeAnswersAddon && {
           includedAnswers: true,
         }),
+      }),
     };
 
     try {

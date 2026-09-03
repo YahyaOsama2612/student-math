@@ -45,11 +45,20 @@ const mainFeatures = [
   },
   {
     title: "Promo Code",
-    description: "Check the latest promo codes and offers to save on your purchases",
+    description:
+      "Check the latest promo codes and offers to save on your purchases",
     MainIcon: TicketPercent,
     buttons: [
       { label: "Promo Code", icon: TicketPercent, path: "/user/promo" },
-    
+    ],
+  },
+  {
+    title: "Remaining Homework",
+    description:
+      "Check your remaining balance and manage your funds",
+    MainIcon: TicketPercent,
+    buttons: [
+      { label: "Remaining Homework", icon: TicketPercent, path: "/user/remaining" },
     ],
   },
   /* {
@@ -125,7 +134,7 @@ const Home = () => {
           <ActionCard key={index} {...feature} navigate={navigate} />
         ))}
 
-       {/*  <Card>
+        {/*  <Card>
           <h2 className="text-lg font-bold mb-4">Promo code</h2>
           <p>See the latest promo codes and offers!</p>
         </Card> */}

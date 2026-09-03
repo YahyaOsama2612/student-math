@@ -33,6 +33,7 @@ import PendingPurchases from "../pages/Purchases/PendingPurchase";
 import ContentDetails from "../pages/Purchases/ContentDetails";
 import Quiz from "../pages/Quizes/quiz";
 import PromoPage from "../pages/PromoCode/promo";
+import RemainingHomework from "../pages/Remaining/Remaining";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -161,6 +162,10 @@ const router = createBrowserRouter([
       {
         path:"quiz/:quizId",
         element: <Quiz />
+      },
+      {
+        path: "remaining",
+        element: <RemainingHomework />,
       }
     ],
   },
