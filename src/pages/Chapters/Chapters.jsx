@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, Component } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loader from "@/components/Loading";
@@ -58,12 +58,53 @@ const getStyle = (name) => {
   return colorPalette[index];
 };
 
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Error caught by ErrorBoundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-red-50 rounded-lg border border-red-200 m-4">
+          <h2 className="text-lg font-bold text-red-800 mb-2">
+            خطأ في تحميل البيانات
+          </h2>
+          <p className="text-red-600 text-sm mb-4">
+            {this.state.error?.message || "حدث خطأ غير متوقع"}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            إعادة تحميل الصفحة
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const Chapters = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data, loading, error } = useGet(`/api/user/chapters/course/${id}`);
 
-  const chapters = data?.data?.chapters || [];
+  // صفّي البيانات الـ null والمفقودة
+  const chapters = (data?.data?.chapters || []).filter(
+    (item) => item && item.chapter && item.chapter.id && item.chapter.name
+  );
 
   // وضع الشراء
   const [isBuyMode, setIsBuyMode] = useState(false);
@@ -78,6 +119,9 @@ const Chapters = () => {
   };
 
   const toggleSelection = (item) => {
+    // تحقق من وجود البيانات الأساسية
+    if (!item?.chapter?.id) return;
+
     // إذا لم نكن في وضع الشراء، الضغط على الكارت ينقل المستخدم لصفحة الشابتر
     if (!isBuyMode) {
       navigate(`/user/chapter/${item.chapter.id}`);
@@ -92,12 +136,13 @@ const Chapters = () => {
         return prev.filter((c) => c.chapterId !== item.chapter.id);
       }
 
-      const defaultPlan = getDefaultPlan(item.chapter.pricePlans);
+      const pricePlans = item.chapter?.pricePlans || [];
+      const defaultPlan = getDefaultPlan(pricePlans);
       return [
         ...prev,
         {
           chapterId: item.chapter.id,
-          chapterName: item.chapter.name,
+          chapterName: item.chapter.name || "Unnamed Chapter",
           planId: defaultPlan?.id || null,
           planLabel: defaultPlan?.durationLabel || "",
           price: defaultPlan ? parseFloat(defaultPlan.totalPriceEgp) : 0,
@@ -108,7 +153,10 @@ const Chapters = () => {
   };
   // دالة لتغيير الخطة السعرية للشابتر المختار
   const handlePlanChange = (item, planId) => {
-    const selectedPlan = item.chapter.pricePlans.find((p) => p.id === planId);
+    if (!item?.chapter?.id) return;
+    
+    const pricePlans = item.chapter?.pricePlans || [];
+    const selectedPlan = pricePlans.find((p) => p?.id === planId);
     if (!selectedPlan) return;
 
     setSelectedChapters((prev) =>
@@ -117,8 +165,8 @@ const Chapters = () => {
           ? {
               ...c,
               planId: selectedPlan.id,
-              planLabel: selectedPlan.durationLabel,
-              price: parseFloat(selectedPlan.totalPriceEgp),
+              planLabel: selectedPlan.durationLabel || "",
+              price: parseFloat(selectedPlan.totalPriceEgp) || 0,
             }
           : c,
       ),
@@ -193,16 +241,20 @@ const Chapters = () => {
       {/* Grid الشباتر */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {chapters.map((item) => {
-          const style = getStyle(item.chapter.name);
+          // تحقق من وجود البيانات الأساسية
+          if (!item?.chapter) return null;
+          
+          const style = getStyle(item.chapter.name || "");
           const selectedItem = selectedChapters.find(
-            (c) => c.chapterId === item.chapter.id,
+            (c) => c.chapterId === item.chapter?.id,
           );
           const isSelected = !!selectedItem;
 
           // جلب الخطة السعرية الحالية المعروضة
+          const pricePlans = item.chapter?.pricePlans || [];
           const currentPlan = isSelected
-            ? item.chapter.pricePlans.find((p) => p.id === selectedItem.planId)
-            : getDefaultPlan(item.chapter.pricePlans);
+            ? pricePlans.find((p) => p?.id === selectedItem?.planId)
+            : getDefaultPlan(pricePlans);
 
           return (
             <div
@@ -254,18 +306,22 @@ const Chapters = () => {
                 </h3>
 
                 <div className="space-y-2.5 mb-5">
-                  <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span>{item.teacher.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                    <Layout className="w-4 h-4 text-gray-400" />
-                    <span>{item.semester.name}</span>
-                  </div>
+                  {item?.teacher?.name && (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
+                      <User className="w-4 h-4 text-gray-400" />
+                      <span>{item.teacher.name}</span>
+                    </div>
+                  )}
+                  {item?.semester?.name && (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
+                      <Layout className="w-4 h-4 text-gray-400" />
+                      <span>{item.semester.name}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* أزرار اختيار الخطة السعرية للشابتر (Grid ثنائي) */}
-                {isBuyMode && item.chapter.pricePlans?.length > 0 && (
+                {isBuyMode && pricePlans?.length > 0 && (
                   <div
                     className="mb-5 mt-auto"
                     onClick={(e) => e.stopPropagation()}
@@ -274,7 +330,9 @@ const Chapters = () => {
                       Select Plan:
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                      {item.chapter.pricePlans.map((plan) => {
+                      {pricePlans.map((plan) => {
+                        if (!plan?.id) return null;
+                        
                         const isPlanSelected =
                           selectedItem?.planId === plan.id ||
                           (!isSelected && plan.isDefault);
@@ -294,12 +352,12 @@ const Chapters = () => {
                             }`}
                           >
                             <div className="block truncate">
-                              {plan.durationLabel}
+                              {plan.durationLabel || "Plan"}
                             </div>
                             <div
                               className={`text-[10px] mt-0.5 font-medium ${isPlanSelected ? "text-one/80" : "text-gray-400"}`}
                             >
-                              {parseFloat(plan.totalPriceEgp)} LE
+                              {parseFloat(plan.totalPriceEgp || 0)} LE
                             </div>
                           </button>
                         );
@@ -315,9 +373,9 @@ const Chapters = () => {
                   {currentPlan ? (
                     <>
                       <span className="text-lg font-black text-gray-900">
-                        {parseFloat(currentPlan.totalPriceEgp)} LE
+                        {parseFloat(currentPlan.totalPriceEgp || 0)} LE
                       </span>
-                      {currentPlan.hasDiscount && (
+                      {currentPlan.hasDiscount && currentPlan.priceEgp && (
                         <span className="text-xs text-gray-400 line-through">
                           {parseFloat(currentPlan.priceEgp)} LE
                         </span>
@@ -330,7 +388,7 @@ const Chapters = () => {
                   )}
                 </div>
 
-                {!isBuyMode && (
+                {!isBuyMode && item?.chapter?.id && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -371,4 +429,10 @@ const Chapters = () => {
   );
 };
 
-export default Chapters;
+export default function ChaptersWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <Chapters />
+    </ErrorBoundary>
+  );
+}
