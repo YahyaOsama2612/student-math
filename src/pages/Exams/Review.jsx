@@ -1,17 +1,23 @@
 import React, { useState } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import ParallelQuestions from "./ParallelQuestions";
+import { ShoppingCart, BarChart3, Lightbulb } from "lucide-react";
 
 const Review = () => {
   const { attemptId } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const [expandedRow, setExpandedRow] = useState(null);
   const [loadingParallelId, setLoadingParallelId] = useState(null);
   const [parallelData, setParallelData] = useState(null);
+  const [showReports, setShowReports] = useState(false);
+  const [showQuestionsReport, setShowQuestionsReport] = useState(false);
+  const [showRecapReport, setShowRecapReport] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
 
   const examResult =
     location.state?.examMode === "exam" ? location.state?.examResult : null;
@@ -99,6 +105,81 @@ const Review = () => {
     }
   };
 
+  const handleNavigateToBuy = (questionId, topic) => {
+    navigate("/user/payment", {
+      state: {
+        source: "diagnostic-review",
+        questionId,
+        topic,
+        attemptId,
+      },
+    });
+  };
+
+  const recommendationRows = questions
+    .filter((q) => q?.recommendationToRecap)
+    .map((q, idx) => ({
+      questionNo: idx + 1,
+      questionId: q.questionId,
+      questionText: q.questionText,
+      lessonName: q.recommendationToRecap?.lessonName,
+      chapterName: q.recommendationToRecap?.chapterName,
+      courseName: q.recommendationToRecap?.courseName,
+    }));
+
+  const exportReportsToPDF = async () => {
+    const element = document.getElementById("reports-section");
+    if (!element) {
+      alert("Reports not found. Please open reports first.");
+      return;
+    }
+
+    setExportingPDF(true);
+
+    try {
+      const html2canvas = (await import("html2canvas-pro")).default;
+      const { jsPDF } = await import("jspdf");
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        proxy: "",
+        ignoreElements: (el) => el?.id === "parallel-questions-panel",
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "JPEG", 0, position, pageWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, pageWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const filename = `diagnostic-exam-reports-${new Date().toISOString().split("T")[0]}.pdf`;
+      pdf.save(filename, { returnPromise: false });
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert(
+        "Failed to export PDF. Please try again or open the reports section.",
+      );
+    } finally {
+      setExportingPDF(false);
+    }
+  };
+
   const studentBalances = data?.data?.studentBalances;
   const { packageBalance } = studentBalances || {};
 
@@ -154,6 +235,262 @@ const Review = () => {
         </div>
       )}
 
+      {/* Diagnostic Reports Section */}
+      <div className="mb-8">
+        <div className="flex flex-wrap gap-3 mb-4">
+          <button
+            onClick={() => setShowReports(!showReports)}
+            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-semibold rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition shadow-md"
+          >
+            <BarChart3 size={20} />
+            {showReports ? "Hide Reports" : "View Reports"}
+          </button>
+
+          {showReports && (
+            <>
+              <button
+                onClick={() => {
+                  setShowQuestionsReport(true);
+                  setShowRecapReport(false);
+                }}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-indigo-800 transition shadow-md"
+              >
+                <BarChart3 size={20} />
+                Questions Report
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowQuestionsReport(false);
+                  setShowRecapReport(true);
+                }}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold rounded-lg hover:from-amber-600 hover:to-orange-600 transition shadow-md"
+              >
+                <Lightbulb size={20} />
+                Recommendation Recap
+              </button>
+
+              <button
+                onClick={exportReportsToPDF}
+                disabled={exportingPDF}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-emerald-700 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {exportingPDF ? (
+                  <>
+                    <svg
+                      className="w-5 h-5 animate-spin"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    Generating PDF...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    Export PDF
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+
+        {showReports && (
+          <div
+            id="reports-section"
+            className="mt-6 space-y-6 p-6 bg-white rounded-xl"
+          >
+            {showQuestionsReport && (
+              <div
+                id="questions-report-section"
+                className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 border border-indigo-200 rounded-xl shadow-sm"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart3 className="text-indigo-600" size={24} />
+                  <h3 className="text-lg font-bold text-indigo-900">
+                    Questions Report
+                  </h3>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-indigo-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Question No
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Question
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Lesson
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Chapter
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Course
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-indigo-900">
+                          Result
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {questions.map((q, idx) => (
+                        <tr
+                          key={q.questionId}
+                          className="border-t border-indigo-100"
+                        >
+                          <td className="px-4 py-3 font-semibold text-slate-700">
+                            {idx + 1}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <span
+                              className="line-clamp-2"
+                              dangerouslySetInnerHTML={{
+                                __html: q.questionText || "—",
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {q.recommendationToRecap?.lessonName || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {q.recommendationToRecap?.chapterName || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {q.recommendationToRecap?.courseName || "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                q.isCorrect
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {q.isCorrect ? "Correct" : "Wrong Answer"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {showRecapReport && (
+              <div
+                id="recommendation-report-section"
+                className="p-6 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Lightbulb className="text-amber-600" size={24} />
+                  <h3 className="text-lg font-bold text-amber-900">
+                    Recommendation Recap
+                  </h3>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-amber-100 bg-white">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-amber-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-bold text-amber-900">
+                          Question No
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-amber-900">
+                          Question
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-amber-900">
+                          Lesson
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-amber-900">
+                          Chapter
+                        </th>
+                        <th className="px-4 py-3 text-left font-bold text-amber-900">
+                          Course
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recommendationRows.length > 0 ? (
+                        recommendationRows.map((row) => (
+                          <tr
+                            key={row.questionId}
+                            className="border-t border-amber-100"
+                          >
+                            <td className="px-4 py-3 font-semibold text-slate-700">
+                              {row.questionNo}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <span
+                                className="line-clamp-2"
+                                dangerouslySetInnerHTML={{
+                                  __html: row.questionText || "—",
+                                }}
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.lessonName || "—"}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.chapterName || "—"}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.courseName || "—"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan="6"
+                            className="px-4 py-3 text-sm text-green-700"
+                          >
+                            ✨ Excellent performance! You've answered all
+                            questions correctly. Keep practicing to maintain
+                            your level!
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="space-y-5">
         {questions.map((q, index) => (
           <div
@@ -184,6 +521,44 @@ const Review = () => {
               className="mb-4 text-slate-700"
               dangerouslySetInnerHTML={{ __html: q.questionText }}
             />
+
+            {q.recommendationToRecap && (
+              <div className="mt-4 p-4 rounded-xl border border-amber-100 bg-amber-50">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-amber-700 uppercase">
+                      Recommendation Recap
+                    </p>
+                    <p className="text-sm text-slate-700 mt-2">
+                      <span className="font-semibold">Lesson:</span>{" "}
+                      {q.recommendationToRecap.lessonName || "—"}
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      <span className="font-semibold">Chapter:</span>{" "}
+                      {q.recommendationToRecap.chapterName || "—"}
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      <span className="font-semibold">Course:</span>{" "}
+                      {q.recommendationToRecap.courseName || "—"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      handleNavigateToBuy(
+                        q.questionId,
+                        q.recommendationToRecap?.lessonName ||
+                          q.recommendationToRecap?.chapterName ||
+                          "Diagnostic review",
+                      )
+                    }
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm rounded-lg hover:from-amber-600 hover:to-orange-600 transition shadow-sm"
+                  >
+                    <ShoppingCart size={16} />
+                    Buy
+                  </button>
+                </div>
+              </div>
+            )}
 
             {q.hasParallel && (
               <button
