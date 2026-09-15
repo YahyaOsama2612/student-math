@@ -5,6 +5,7 @@ import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
 import ParallelQuestions from "./ParallelQuestions";
+import DiagnosticReviewDashboard from "@/components/DiagnosticReview/DiagnosticReviewDashboard";
 import { ShoppingCart, BarChart3, Lightbulb } from "lucide-react";
 
 const Review = () => {
@@ -32,7 +33,31 @@ const Review = () => {
 
   if (examResult) {
     return (
-      <ExamResultReview result={examResult} examId={location.state?.examId} />
+      <DiagnosticReviewDashboard
+        data={{
+          ...examResult,
+          examTitle: examResult.examTitle || examResult.title || "Exam Results",
+          questions:
+            examResult.questions ||
+            examResult.data ||
+            (examResult.mistakes || []).map((mistake) => ({
+              ...mistake,
+              questionId: mistake.questionId || mistake.id,
+              questionText: mistake.questionText || mistake.question,
+              isCorrect: false,
+            })),
+        }}
+        attemptId={examResult.attemptId || attemptId}
+        onCheckout={(checkoutState) =>
+          navigate("/user/enrollment", {
+            state: {
+              ...checkoutState,
+              source: "diagnostic-review-cart",
+              attemptId: examResult.attemptId || attemptId,
+            },
+          })
+        }
+      />
     );
   }
 
@@ -54,6 +79,26 @@ const Review = () => {
       </div>
     );
   }
+
+  return (
+    <DiagnosticReviewDashboard
+      data={{
+        ...data?.data,
+        questions,
+        examTitle: data?.data?.examTitle || data?.data?.title,
+      }}
+      attemptId={attemptId}
+      onCheckout={(checkoutState) =>
+        navigate("/user/enrollment", {
+          state: {
+            ...checkoutState,
+            source: "diagnostic-review-cart",
+            attemptId,
+          },
+        })
+      }
+    />
+  );
 
   const correctQuestions = [];
   const incorrectQuestions = [];
