@@ -439,241 +439,7 @@ const ExamHeader = ({ summary }) => {
   );
 };
  */
-const QuestionGrid = ({ questions, onSelect }) => (
-  <Section title="Question performance" eyebrow="Question-by-question view">
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {questions.map((question) => {
-        const status = statusMeta(question);
-        const ResultIcon = question.isCorrect ? Check : X;
-        return (
-          <button
-            type="button"
-            key={question.id}
-            onClick={() => onSelect(question)}
-            className={`group overflow-hidden rounded-xl border text-left transition hover:-translate-y-0.5 hover:shadow-md ${status.accent}`}
-          >
-            <div className="flex items-center justify-between border-b border-inherit bg-slate-50 px-4 py-3">
-              <span className="font-bold text-slate-800">
-                Question {question.number}
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 text-xs font-bold ${status.className}`}
-              >
-                {status.label}
-              </span>
-            </div>
-            {question.image ? (
-              <img
-                src={question.image}
-                alt={`Question ${question.number}`}
-                className="h-32 w-full object-contain bg-white p-2"
-              />
-            ) : (
-              <div className="line-clamp-2 h-32 bg-slate-50 p-4 text-sm text-slate-600">
-                {stripHtml(question.questionText)}
-              </div>
-            )}
-            <div className="space-y-3 p-4">
-              {/* <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Your answer
-                </p>
-                <p
-                  className={`mt-1 rounded-lg p-2 text-sm ${question.isSkipped ? "bg-slate-100 text-slate-500" : question.isCorrect ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}
-                >
-                  {question.studentAnswer}
-                </p>
-              </div> */}
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                <ResultIcon
-                  size={15}
-                  className={
-                    question.isCorrect ? "text-emerald-600" : "text-red-600"
-                  }
-                />
-                {/*  <span className="font-medium">Correct:</span>
-                <span className="truncate">{question.correctAnswer}</span> */}
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                <span className="rounded bg-slate-100 px-2 py-1">
-                  {question.chapter}
-                </span>
-                <span className="rounded bg-slate-100 px-2 py-1">
-                  {question.difficulty}
-                </span>
-              </div>
-              {question.recommendationToRecap && (
-                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
-                  <p className="font-bold uppercase tracking-wide text-amber-700">
-                    Recommended review
-                  </p>
-                  <p className="mt-1 font-semibold">{question.lesson}</p>
-                  <p>{question.chapter}</p>
-                </div>
-              )}
-              <span className="inline-flex items-center gap-1 text-xs font-bold text-[#8B1A1A]">
-                View explanation <ArrowRight size={13} />
-              </span>
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  </Section>
-);
 
-const QuestionDetail = ({ question, onClose }) => {
-  if (!question) return null;
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-[#8B1A1A]">
-              Question {question.number}
-            </p>
-            <h3 className="mt-1 text-xl font-bold text-slate-900">
-              {question.chapter} / {question.lesson}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close explanation"
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        {question.image && (
-          <img
-            src={question.image}
-            alt="Question"
-            className="mt-5 max-h-64 w-full object-contain"
-          />
-        )}
-        <div
-          className="mt-5 text-slate-700"
-          dangerouslySetInnerHTML={{ __html: question.questionText }}
-        />
-        {question.recommendationToRecap && (
-          <div className="mt-5 rounded-lg border border-amber-100 bg-amber-50 p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
-              Recommended review
-            </p>
-            <p className="mt-1 font-semibold text-amber-950">
-              {question.lesson}
-            </p>
-            <p className="text-sm text-amber-900">
-              Chapter: {question.chapter}
-            </p>
-            {question.recommendationToRecap.courseName && (
-              <p className="text-sm text-amber-900">
-                Course: {question.recommendationToRecap.courseName}
-              </p>
-            )}
-          </div>
-        )}
-        {/*  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg bg-red-50 p-3">
-            <p className="text-xs font-bold uppercase text-red-700">
-              Your answer
-            </p>
-            <p className="mt-1 text-sm text-red-900">
-              {question.studentAnswer}
-            </p>
-          </div>
-          <div className="rounded-lg bg-emerald-50 p-3">
-            <p className="text-xs font-bold uppercase text-emerald-700">
-              Correct answer
-            </p>
-            <p className="mt-1 text-sm text-emerald-900">
-              {question.correctAnswer}
-            </p>
-          </div>
-        </div> */}
-        {question.explanationItems.length > 0 && (
-          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-bold uppercase text-slate-500">
-              Explanation
-            </p>
-            {question.explanationItems.map((item) => (
-              <div
-                key={item.id}
-                className="mt-3 space-y-2 text-sm text-slate-700"
-              >
-                {item.answerText && (
-                  <div>
-                    <ExplanationLabel className="bg-blue-50 text-blue-700">
-                      Text explanation
-                    </ExplanationLabel>
-                    <div
-                      className="mt-2"
-                      dangerouslySetInnerHTML={{ __html: item.answerText }}
-                    />
-                  </div>
-                )}
-                {item.answerImage && (
-                  <div>
-                    <ExplanationLabel className="bg-emerald-50 text-emerald-700">
-                      Image explanation
-                    </ExplanationLabel>
-                    <img
-                      src={item.answerImage}
-                      alt="Image explanation"
-                      className="mt-2 max-h-64 w-full rounded-lg object-contain"
-                      onError={(event) => {
-                        event.currentTarget.style.display = "none";
-                        event.currentTarget.nextElementSibling?.removeAttribute(
-                          "hidden",
-                        );
-                      }}
-                    />
-                    <p
-                      hidden
-                      className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800"
-                    >
-                      Image explanation is unavailable.
-                    </p>
-                  </div>
-                )}
-                {item.answerVideo && (
-                  <div>
-                    <ExplanationLabel className="bg-amber-50 text-amber-700">
-                      Video explanation
-                    </ExplanationLabel>
-                    <video controls className="mt-2 w-full rounded-lg">
-                      <source src={item.answerVideo} type="video/mp4" />
-                    </video>
-                  </div>
-                )}
-                {item.answerPdf && (
-                  <div>
-                    <ExplanationLabel className="bg-red-50 text-red-700">
-                      PDF explanation
-                    </ExplanationLabel>
-                    <a
-                      href={item.answerPdf}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 block font-semibold text-[#8B1A1A] underline"
-                    >
-                      View explanation PDF
-                    </a>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
 
 const Recommendations = ({
   recommendations,
@@ -1403,7 +1169,7 @@ const DiagnosticReviewDashboard = ({ data, attemptId, onCheckout }) => {
         </section>
        {/*  <ChapterAnalysis questions={questions} /> */}
         {/* <TimeAnalytics questions={questions} /> */}
-        <QuestionGrid questions={questions} onSelect={setSelectedQuestion} />
+       {/*  <QuestionGrid questions={questions} onSelect={setSelectedQuestion} /> */}
         <Recommendations
           recommendations={recommendations}
           cart={cart}
@@ -1425,10 +1191,10 @@ const DiagnosticReviewDashboard = ({ data, attemptId, onCheckout }) => {
           }
         />
       </div>
-      <QuestionDetail
+     {/*  <QuestionDetail
         question={selectedQuestion}
         onClose={() => setSelectedQuestion(null)}
-      />
+      /> */}
       {activeReport && (
         <ReportPreview
           report={activeReport}
