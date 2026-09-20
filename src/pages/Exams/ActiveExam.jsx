@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -12,6 +12,8 @@ import {
   LayoutGrid,
   LineChart as LineChartIcon,
   X,
+  Coffee,
+  Play,
 } from "lucide-react";
 import usePost from "@/hooks/usePost";
 import Swal from "sweetalert2";
@@ -188,6 +190,239 @@ const GridInInput = ({ value, onChange }) => {
   );
 };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const resolveGridInValue = (rawValue) => {
+  const raw = rawValue.toString();
+  const evaluated = evaluateExpression(raw);
+  return evaluated && evaluated !== "—" ? evaluated : raw;
+};
+
+const formatClock = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+};
+
+const getErrorMessage = (err, fallback) =>
+  (typeof err === "string" ? err : err?.message) || fallback;
+
+// Seconds left until `endsAt` (ms timestamp). Computed from the wall clock on
+// every render, so it stays accurate even if the tab is throttled.
+const useCountdown = (endsAt) => {
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!endsAt) return;
+    const t = setInterval(() => forceTick((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, [endsAt]);
+  return endsAt ? Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)) : 0;
+};
+
+// ─── SectionRequest ──────────────────────────────────────────────────────────
+// Fires a GET (via useGet) as soon as it is mounted, then reports back once.
+// Used for the /start and /break endpoints, because a hook can't be called
+// conditionally from inside an event handler.
+const SectionRequest = ({ url, onSuccess, onError }) => {
+  const { data, loading, error } = useGet(url);
+  const handledRef = useRef(false);
+
+  useEffect(() => {
+    if (handledRef.current || loading) return;
+    if (error) {
+      handledRef.current = true;
+      onError(error);
+    } else if (data) {
+      handledRef.current = true;
+      onSuccess(data);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loading, error]);
+
+  return null;
+};
+
+// ─── SectionTransition ───────────────────────────────────────────────────────
+// "intro": shown before any section is started.
+// "break": shown after a section is submitted.
+// In both, the student can start ANY section that hasn't been submitted yet.
+const SectionTransition = ({
+  variant,
+  sections,
+  submittedIds,
+  startingIndex,
+  onStart,
+  onBack,
+}) => {
+  const isNext = variant === "next";
+  const busy = startingIndex !== null && startingIndex !== undefined;
+
+  return (
+    <div className="min-h-screen w-full bg-gray-50 flex flex-col items-center font-sans p-4">
+      <div className="w-full max-w-3xl flex flex-col gap-4">
+        {!isNext && onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-gray-400 hover:text-gray-900 transition-colors font-medium text-sm self-start"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+        )}
+
+        {/* Header card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8">
+          {isNext ? (
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-12 h-12 rounded-full bg-green-500 text-white flex items-center justify-center">
+                <CheckCircle size={22} />
+              </div>
+              <h1 className="text-xl font-black text-gray-800">
+                Section submitted
+              </h1>
+              <p className="text-sm text-gray-500">
+                Choose which section to start next.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <h1 className="text-xl font-black text-gray-800">
+                Choose a section to start
+              </h1>
+              <p className="text-sm text-gray-500">
+                You can start the sections in any order. The timer begins when
+                you press Start, and you can't return to a section after you
+                submit it. You can take a break from inside a section.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Sections */}
+        <div className="flex flex-col gap-3">
+          {sections.map((sec, i) => {
+            const done = submittedIds.includes(sec.id);
+            const isStarting = startingIndex === i;
+            return (
+              <div
+                key={sec.id}
+                className={`bg-white rounded-2xl shadow-sm border p-5 flex flex-col md:flex-row md:items-center gap-4 ${
+                  done ? "border-gray-100 opacity-70" : "border-gray-100"
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-sm font-black ${
+                    done ? "bg-green-500 text-white" : "bg-one/10 text-one"
+                  }`}
+                >
+                  {done ? <CheckCircle size={16} /> : i + 1}
+                </div>
+
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <h2 className="text-base font-black text-gray-800">
+                    {sec.name}
+                  </h2>
+                  {sec.description && (
+                    <p className="text-sm text-gray-500">{sec.description}</p>
+                  )}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-gray-500 mt-1">
+                    <span className="flex items-center gap-1.5">
+                      <Clock size={13} className="text-one" /> {sec.duration}{" "}
+                      min
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <LayoutGrid size={13} className="text-one" />
+                      {sec.questions.length} questions
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Coffee size={13} className="text-one" />
+                      {sec.breakLimited && sec.maxBreakDuration
+                        ? `${sec.maxBreakDuration} min break allowed`
+                        : "No break time limit"}
+                    </span>
+                  </div>
+                </div>
+
+                {done ? (
+                  <span className="text-xs font-bold text-green-600 shrink-0">
+                    Submitted
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onStart(i)}
+                    disabled={busy}
+                    className={`px-5 py-2.5 rounded-lg font-bold text-white text-sm transition flex items-center justify-center gap-2 shrink-0 ${
+                      isStarting
+                        ? "bg-gray-400 cursor-wait" // the clicked one: looks like it's running
+                        : busy
+                          ? "bg-one opacity-40 cursor-not-allowed" // the others: locked, but not "running"
+                          : "bg-one hover:opacity-90"
+                    }`}
+                  >
+                    <Play
+                      size={14}
+                      className={isStarting ? "animate-pulse" : ""}
+                    />
+                    {isStarting ? "Starting..." : "Start"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── BreakScreen ─────────────────────────────────────────────────────────────
+// Shown while a section is paused for a break (after GET .../break).
+const BreakScreen = ({
+  sectionName,
+  isTimed,
+  secondsLeft,
+  resuming,
+  onResume,
+}) => (
+  <div className="min-h-screen w-full bg-gray-50 flex items-center justify-center font-sans p-4">
+    <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 flex flex-col items-center text-center gap-3">
+      <div className="w-12 h-12 rounded-full bg-one/10 text-one flex items-center justify-center">
+        <Coffee size={22} />
+      </div>
+      <h1 className="text-xl font-black text-gray-800">Break</h1>
+      <p className="text-sm text-gray-500">
+        {sectionName} is paused. Your answers are saved.
+      </p>
+      {isTimed ? (
+        <>
+          <span
+            className={`text-4xl font-black tabular-nums tracking-widest ${
+              secondsLeft < 60 ? "text-red-600" : "text-one"
+            }`}
+          >
+            {formatClock(secondsLeft)}
+          </span>
+          <p className="text-xs text-gray-400">
+            The section resumes automatically when the break ends.
+          </p>
+        </>
+      ) : (
+        <p className="text-xs text-gray-400">This break has no time limit.</p>
+      )}
+      <button
+        onClick={onResume}
+        disabled={resuming}
+        className={`mt-2 w-full px-6 py-2.5 rounded-lg font-bold text-white text-sm transition flex items-center justify-center gap-2 ${
+          resuming
+            ? "bg-gray-400 cursor-not-allowed"
+            : "bg-one hover:opacity-90"
+        }`}
+      >
+        <Play size={14} />
+        {resuming ? "Resuming..." : "Resume section"}
+      </button>
+    </div>
+  </div>
+);
+
 // ─── ActiveExam Component ────────────────────────────────────────────────────
 const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const params = useParams();
@@ -214,6 +449,18 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const attemptIdFromState = location.state?.attemptId;
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
+
+  // Section flow (exam mode only): intro -> active -> break -> active -> ...
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [submittedIds, setSubmittedIds] = useState([]); // ids of submitted sections
+  const [breakUsedIds, setBreakUsedIds] = useState([]); // sections that already had their break
+  const [pausedSeconds, setPausedSeconds] = useState(0); // section time left when the break began
+  const [phase, setPhase] = useState(examMode === "exam" ? "intro" : "active");
+  const [sectionEndsAt, setSectionEndsAt] = useState(null);
+  const [breakEndsAt, setBreakEndsAt] = useState(null);
+  const [pending, setPending] = useState(null); // { type: "start" | "break", url, sectionIndex }
+  const submittingRef = useRef(false);
+  const autoStartedRef = useRef(false);
   const [showScientific, setShowScientific] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
@@ -225,6 +472,9 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const [timeLeft, setTimeLeft] = useState(diagnosticDuration * 60 || 60 * 60);
   const [isImageZoomed, setIsImageZoomed] = useState(false);
+
+  const sectionSecondsLeft = useCountdown(sectionEndsAt);
+  const breakSecondsLeft = useCountdown(breakEndsAt);
 
   const rawExam =
     examMode === "exam"
@@ -246,13 +496,20 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       ? (examProp?.attemptId ?? rawAttempt?.id)
       : attemptIdFromState;
 
+  // The `calculators` key can come from the exam response, the route state
+  // (diagnostic exams usually arrive this way) or the diagnostic response.
+  const apiPayload =
+    apiResponse?.data?.data ?? apiResponse?.data ?? apiResponse;
   const calculatorsRaw =
     rawExam?.calculators ??
     examProp?.calculators ??
+    examProp?.diagnosticExam?.calculators ??
     location.state?.calculators ??
     location.state?.diagnosticExam?.calculators ??
     location.state?.exam?.calculators ??
-    apiResponse?.data?.data?.calculators ??
+    apiPayload?.calculators ??
+    apiPayload?.exam?.calculators ??
+    apiPayload?.diagnosticExam?.calculators ??
     apiResponse?.data?.calculators ??
     apiResponse?.calculators ??
     "[]";
@@ -264,16 +521,17 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       .replace(/[^a-z0-9]/g, "");
 
   const allowedTools = useMemo(() => {
-    try {
-      const parsed =
-        typeof calculatorsRaw === "string"
-          ? JSON.parse(calculatorsRaw)
-          : calculatorsRaw;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.map(normalizeToolKey).filter(Boolean);
-    } catch {
-      return [];
+    let parsed = calculatorsRaw;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        // Not JSON, e.g. "3D, four function"
+        parsed = parsed.split(",");
+      }
     }
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeToolKey).filter(Boolean);
   }, [calculatorsRaw]);
 
   const allTools = [
@@ -321,47 +579,57 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     },
   ];
 
-  const availableTools =
-    examMode === "exam"
-      ? allTools.filter((tool) => allowedTools.includes(tool.key))
-      : [];
+  // Same rule for normal and diagnostic exams: show only the calculators
+  // listed in the exam's `calculators` key.
+  const availableTools = allTools.filter((tool) =>
+    allowedTools.includes(tool.key),
+  );
 
+  const mapQuestion = (q, sectionName) => ({
+    id: q.questionId,
+    sectionName,
+    question: q.questionText,
+    image: q.questionImage,
+    answerType: q.answerType,
+    score: q.score,
+    options: (q.options || []).map((o) => ({
+      id: o.id,
+      answer: o.answer,
+      order: o.order,
+    })),
+  });
+
+  // Exam mode: sections sorted by sectionOrder, each with its own questions.
+  const sections = useMemo(() => {
+    if (examMode !== "exam" || !rawExam?.sections) return [];
+    return [...rawExam.sections]
+      .sort((a, b) => a.sectionOrder - b.sectionOrder)
+      .map((section) => ({
+        id: section.id,
+        name: section.sectionName,
+        description: section.sectionDescription,
+        duration: section.effectiveDuration ?? rawExam.duration ?? 0,
+        breakLimited: !!section.breakLimited,
+        maxBreakDuration: section.maxBreakDuration,
+        questions: [...(section.questions || [])]
+          .sort((a, b) => a.questionOrder - b.questionOrder)
+          .map((q) => mapQuestion(q, section.sectionName)),
+      }));
+  }, [examMode, rawExam]);
+
+  const currentSection = sections[currentSectionIndex];
+  // The section being taken is the last one when it's the only one not yet submitted.
+  const isLastSection = sections.length - submittedIds.length <= 1;
+
+  // Exam mode: only the current section's questions are shown at a time.
+  // Diagnostic mode: the whole flat list, as before.
   const questions = useMemo(() => {
-    if (examMode === "exam") {
-      if (!rawExam?.sections) {
-        return [];
-      }
-      return [...rawExam.sections]
-        .sort((a, b) => a.sectionOrder - b.sectionOrder)
-        .flatMap((section) =>
-          [...(section.questions || [])]
-            .sort((a, b) => a.questionOrder - b.questionOrder)
-            .map((q) => ({
-              id: q.questionId,
-              sectionName: section.sectionName,
-              question: q.questionText,
-              image: q.questionImage,
-              answerType: q.answerType,
-              score: q.score,
-              options: (q.options || []).map((o) => ({
-                id: o.id,
-                answer: o.answer,
-                order: o.order,
-              })),
-            })),
-        );
-    }
+    if (examMode === "exam") return currentSection?.questions ?? [];
     return apiResponse?.data?.data || [];
-  }, [apiResponse, examMode, rawExam]);
+  }, [apiResponse, examMode, currentSection]);
 
   const question = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
-
-  useEffect(() => {
-    if (examMode === "exam" && rawExam?.duration) {
-      setTimeLeft(rawExam.duration * 60);
-    }
-  }, [examMode, rawExam?.duration]);
 
   useEffect(() => {
     if (
@@ -384,13 +652,15 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const navBtnSize = getNavButtonSize(questions.length);
 
+  // Diagnostic exams keep the single countdown. Exam sections use
+  // sectionEndsAt / useCountdown instead.
   useEffect(() => {
-    if (timeLeft <= 0) return;
+    if (examMode === "exam" || timeLeft <= 0) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => prev - 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, [timeLeft, examMode]);
 
   const handleBack = async () => {
     if (onExit) {
@@ -400,11 +670,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     }
   };
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
+  const formatTime = formatClock;
 
   const handleAnswerChange = (value) => {
     setAnswers({ ...answers, [question.id]: value });
@@ -413,13 +679,13 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const isAnswered = (value) =>
     value !== undefined && value !== null && value.toString().trim() !== "";
 
+  // ── Diagnostic exam: one submit for the whole list (unchanged behaviour) ────
   const handleSubmit = async () => {
     const validAnswers = Object.entries(answers).filter(([_, value]) =>
       isAnswered(value),
     );
 
-    const answeredCount = validAnswers.length;
-    const unansweredCount = questions.length - answeredCount;
+    const unansweredCount = questions.length - validAnswers.length;
 
     if (unansweredCount > 0) {
       const result = await Swal.fire({
@@ -436,41 +702,17 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       if (!result.isConfirmed) return;
     }
 
-    const resolveGridInValue = (rawValue) => {
-      const raw = rawValue.toString();
-      const evaluated = evaluateExpression(raw);
-      return evaluated && evaluated !== "—" ? evaluated : raw;
-    };
-
-    const formattedAnswers = validAnswers.map(([questionId, value]) => {
-      const questionObj = questions.find((q) => q.id === questionId);
-      const isMCQ = questionObj?.answerType === "MCQ";
-
-      if (examMode === "exam") {
-        return {
-          questionId,
-          selectedOptionId: isMCQ ? value : null,
-          gridInAnswer: isMCQ ? null : resolveGridInValue(value),
-        };
-      }
-
-      return {
+    const payload = {
+      answers: validAnswers.map(([questionId, value]) => ({
         questionId,
         answerId: value,
-      };
-    });
-
-    const payload = { answers: formattedAnswers };
-
-    const submitUrl =
-      examMode === "exam"
-        ? `/api/user/exams/${id}/submit`
-        : `/api/user/diagnostic-exams/${attemptId}/submit`;
+      })),
+    };
 
     try {
-      const res = await postData(
+      await postData(
         payload,
-        submitUrl,
+        `/api/user/diagnostic-exams/${attemptId}/submit`,
         "Exam submitted successfully!",
       );
 
@@ -481,16 +723,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
         confirmButtonColor: "#4f46e5",
       });
 
-      navigate(`/user/review/${attemptId}`, {
-        state:
-          examMode === "exam"
-            ? {
-                examMode: "exam",
-                examId: id,
-                examResult: res?.data?.result ?? res?.result ?? res,
-              }
-            : undefined,
-      });
+      navigate(`/user/review/${attemptId}`);
     } catch (err) {
       console.error("Error submitting exam:", err);
 
@@ -502,6 +735,215 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       });
     }
   };
+
+  // ── Exam: section flow ──────────────────────────────────────────────────────
+  const sectionUrl = (section, action) =>
+    `/api/user/exams/${id}/attempts/${attemptId}/sections/${section.id}/${action}`;
+
+  const showError = (text) =>
+    Swal.fire({
+      title: "Error",
+      text,
+      icon: "error",
+      confirmButtonColor: "#d33",
+    });
+
+  // GET .../start  (useGet, through <SectionRequest />)
+  const requestStart = (index) => {
+    const section = sections[index];
+    if (!section || pending || submittedIds.includes(section.id)) return;
+    if (!attemptId) {
+      showError("No active attempt found for this exam.");
+      return;
+    }
+    setPending({
+      type: "start",
+      sectionIndex: index,
+      url: sectionUrl(section, "start"),
+    });
+  };
+
+  // GET .../break  (useGet, through <SectionRequest />) — student presses "Start break"
+  const startBreak = async () => {
+    if (pending || !currentSection) return;
+    if (!attemptId) {
+      showError("No active attempt found for this exam.");
+      return;
+    }
+    const limit =
+      currentSection.breakLimited && currentSection.maxBreakDuration;
+    const result = await Swal.fire({
+      title: "Start break?",
+      text: `${
+        limit ? `You can take up to ${limit} minutes. ` : ""
+      }Your section timer is paused during the break.`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonColor: "#4f46e5",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Start break",
+      cancelButtonText: "Keep working",
+    });
+    if (!result.isConfirmed) return;
+
+    setPending({
+      type: "break",
+      sectionIndex: currentSectionIndex,
+      url: sectionUrl(currentSection, "break"),
+    });
+  };
+
+  const handleRequestSuccess = (res) => {
+    if (pending?.type === "break") {
+      const section = sections[pending.sectionIndex];
+      const limitSeconds =
+        section.breakLimited && section.maxBreakDuration
+          ? section.maxBreakDuration * 60
+          : null;
+
+      setPausedSeconds(sectionSecondsLeft);
+      setSectionEndsAt(null);
+      setBreakEndsAt(limitSeconds ? Date.now() + limitSeconds * 1000 : null);
+      setBreakUsedIds((prev) => [...prev, section.id]);
+      autoStartedRef.current = false;
+      setPhase("break");
+    } else if (pending?.type === "start") {
+      const section = sections[pending.sectionIndex];
+      const isResume = phase === "break"; // coming back from a break
+      const sectionAttempt =
+        res?.data?.data?.sectionAttempt ??
+        res?.data?.sectionAttempt ??
+        res?.sectionAttempt;
+
+      // Prefer the server's remaining time; fall back to what we know locally.
+      const seconds =
+        sectionAttempt?.remainingSeconds ??
+        (isResume ? pausedSeconds : (section.duration || 0) * 60);
+
+      setCurrentSectionIndex(pending.sectionIndex);
+      if (!isResume) setCurrentQuestionIndex(0);
+      setIsImageZoomed(false);
+      setBreakEndsAt(null);
+      setSectionEndsAt(Date.now() + seconds * 1000);
+      setPhase("active");
+    }
+    setPending(null);
+  };
+
+  const handleRequestError = (err) => {
+    const type = pending?.type;
+    setPending(null);
+    showError(
+      getErrorMessage(
+        err,
+        type === "start"
+          ? "Failed to start the section"
+          : "Failed to start the break",
+      ),
+    );
+  };
+
+  // POST .../submit  (usePost) — sends only the current section's answers
+  const submitSection = async ({ auto = false } = {}) => {
+    if (submittingRef.current || !currentSection) return;
+    if (!attemptId) {
+      showError("No active attempt found for this exam.");
+      return;
+    }
+
+    const sectionAnswers = questions
+      .filter((q) => isAnswered(answers[q.id]))
+      .map((q) =>
+        q.answerType === "MCQ"
+          ? { questionId: q.id, selectedOptionId: answers[q.id] }
+          : {
+              questionId: q.id,
+              gridInAnswer: resolveGridInValue(answers[q.id]),
+            },
+      );
+
+    if (!auto) {
+      const unanswered = questions.length - sectionAnswers.length;
+      const result = await Swal.fire({
+        title: isLastSection ? "Submit Exam?" : "Submit Section?",
+        text: `${
+          unanswered > 0
+            ? `You have ${unanswered} unanswered question${unanswered > 1 ? "s" : ""}. `
+            : ""
+        }You won't be able to come back to this section.`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#4f46e5",
+        cancelButtonColor: "#d33",
+        confirmButtonText: "Submit",
+        cancelButtonText: "Keep working",
+      });
+      if (!result.isConfirmed) return;
+    }
+
+    submittingRef.current = true;
+    try {
+      const res = await postData(
+        { answers: sectionAnswers },
+        sectionUrl(currentSection, "submit"),
+        isLastSection
+          ? "Exam submitted successfully!"
+          : "Section submitted successfully!",
+      );
+
+      setSubmittedIds((prev) => [...prev, currentSection.id]);
+
+      if (isLastSection) {
+        await Swal.fire({
+          title: "Well done! 🎉",
+          text: "Your exam has been submitted. Let’s review your answers.",
+          icon: "success",
+          confirmButtonColor: "#4f46e5",
+        });
+
+        navigate(`/user/review/${attemptId}`, {
+          state: {
+            examMode: "exam",
+            examId: id,
+            examResult: res?.data?.result ?? res?.result ?? res,
+          },
+        });
+      } else {
+        setSectionEndsAt(null);
+        setBreakEndsAt(null);
+        setPhase("intro");
+      }
+    } catch (err) {
+      console.error("Error submitting section:", err);
+      showError(getErrorMessage(err, "Failed to submit section"));
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  // Section time is up -> submit automatically.
+  useEffect(() => {
+    if (examMode !== "exam" || phase !== "active" || !sectionEndsAt) return;
+    if (sectionSecondsLeft > 0) return;
+    Swal.fire({
+      title: "Time's up!",
+      text: "Submitting your answers for this section.",
+      icon: "info",
+      timer: 2000,
+      showConfirmButton: false,
+    });
+    submitSection({ auto: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionSecondsLeft, phase, sectionEndsAt]);
+
+  // Timed break is over -> resume the same section automatically.
+  useEffect(() => {
+    if (examMode !== "exam" || phase !== "break" || !breakEndsAt) return;
+    if (breakSecondsLeft > 0 || pending || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    requestStart(currentSectionIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakSecondsLeft, phase, breakEndsAt, pending]);
 
   if (loading)
     return (
@@ -516,7 +958,12 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       </div>
     );
 
-  if (questions.length === 0)
+  const hasNoQuestions =
+    examMode === "exam"
+      ? sections.every((sec) => sec.questions.length === 0)
+      : questions.length === 0;
+
+  if (hasNoQuestions)
     return (
       <div className="w-full h-screen bg-gray-50 flex flex-col font-sans p-4 relative">
         <div className="w-full flex justify-start">
@@ -533,8 +980,78 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
       </div>
     );
 
+  const requestNode = pending ? (
+    <SectionRequest
+      key={pending.url}
+      url={pending.url}
+      onSuccess={handleRequestSuccess}
+      onError={handleRequestError}
+    />
+  ) : null;
+
+  if (examMode === "exam" && phase === "intro") {
+    return (
+      <>
+        {requestNode}
+        <SectionTransition
+          variant={submittedIds.length > 0 ? "next" : "intro"}
+          sections={sections}
+          submittedIds={submittedIds}
+          startingIndex={
+            pending?.type === "start" ? pending.sectionIndex : null
+          }
+          onStart={requestStart}
+          onBack={handleBack}
+        />
+      </>
+    );
+  }
+
+  if (examMode === "exam" && phase === "break") {
+    return (
+      <>
+        {requestNode}
+        <BreakScreen
+          sectionName={currentSection?.name}
+          isTimed={!!breakEndsAt}
+          secondsLeft={breakSecondsLeft}
+          resuming={pending?.type === "start"}
+          onResume={() => requestStart(currentSectionIndex)}
+        />
+      </>
+    );
+  }
+
+  if (!question)
+    return (
+      <div className="w-full h-screen bg-gray-50 flex flex-col items-center justify-center gap-3 text-sm text-gray-500">
+        <span>This section has no questions.</span>
+        {examMode === "exam" && (
+          <button
+            onClick={() => submitSection()}
+            className="px-4 py-2 rounded-lg font-bold text-white text-xs bg-green-500 hover:bg-green-600"
+          >
+            {isLastSection ? "Submit Exam" : "Submit Section"}
+          </button>
+        )}
+      </div>
+    );
+
+  const timerSeconds = examMode === "exam" ? sectionSecondsLeft : timeLeft;
+  const canTakeBreak =
+    examMode === "exam" &&
+    !!currentSection &&
+    !(currentSection.breakLimited && breakUsedIds.includes(currentSection.id));
+  const submitLabel =
+    examMode === "exam"
+      ? isLastSection
+        ? "Submit Exam"
+        : "Submit Section"
+      : "Submit";
+
   return (
     <div className="bg-gray-50 flex flex-col items-center relative w-full overflow-x-hidden font-sans pb-4 px-4 pt-1">
+      {requestNode}
       {/* Full Screen Image */}
       {isImageZoomed && question.image && (
         <div
@@ -584,21 +1101,48 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
             </div>
           </div>
 
-          {/* Timer */}
-          <div className="flex items-center shrink-0">
+          {/* Section + Timer */}
+          <div className="flex items-center gap-2 shrink-0">
+            {examMode === "exam" && currentSection && (
+              <>
+                <span className="hidden sm:inline text-xs font-bold text-gray-500">
+                  {currentSection.name} · {currentSectionIndex + 1}/
+                  {sections.length}
+                </span>
+                {canTakeBreak && (
+                  <button
+                    onClick={startBreak}
+                    disabled={!!pending || userLoading}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-one bg-one/10 hover:bg-one/20 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1"
+                  >
+                    <Coffee size={13} />
+                    {pending?.type === "break" ? "Starting..." : "Start break"}
+                  </button>
+                )}
+                <button
+                  onClick={() => submitSection()}
+                  disabled={userLoading}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+                >
+                  {submitLabel}
+                </button>
+              </>
+            )}
             <div
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black border-2 text-sm shadow-sm transition-colors ${
-                timeLeft < 300
+                timerSeconds < 300
                   ? "bg-red-50 text-red-600 border-red-200"
                   : "bg-white text-one border-one/20"
               }`}
             >
               <Clock
                 size={16}
-                className={timeLeft < 300 ? "animate-bounce" : "animate-pulse"}
+                className={
+                  timerSeconds < 300 ? "animate-bounce" : "animate-pulse"
+                }
               />
               <span className="tabular-nums tracking-widest">
-                {formatTime(timeLeft)}
+                {formatTime(timerSeconds)}
               </span>
             </div>
           </div>
@@ -728,17 +1272,19 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
           <span className="text-xs font-semibold text-gray-500">
             Questions:{" "}
-            {Object.values(answers).filter((v) => isAnswered(v)).length}/
+            {questions.filter((q) => isAnswered(answers[q.id])).length}/
             {questions.length} answered
           </span>
 
           {isLastQuestion ? (
             <button
-              onClick={handleSubmit}
+              onClick={() =>
+                examMode === "exam" ? submitSection() : handleSubmit()
+              }
               disabled={userLoading}
               className={`px-6 py-2 rounded-lg font-bold text-white text-xs transition flex items-center gap-1 ${userLoading ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}
             >
-              {userLoading ? "Submitting..." : "Submit"}{" "}
+              {userLoading ? "Submitting..." : submitLabel}{" "}
               <CheckCircle size={14} />
             </button>
           ) : (
