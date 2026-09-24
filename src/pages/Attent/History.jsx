@@ -13,12 +13,16 @@ import {
   ExternalLink,
   Eye,
   X,
+  Star,
+  MessageSquare,
 } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
 import Errorpage from "../../components/Errorpage";
+import SessionRatingModal from "./SessionRatingModal";
+import SessionRatingsHistory from "./SessionRatingsHistory";
 
-// Import AOS
+// Import AOS for animations
 import AOS from "aos";
 import "aos/dist/aos.css";
 
@@ -28,15 +32,21 @@ const History = () => {
     "/api/user/sessions/history",
   );
 
-  // مودال عرض محتوى الحصة (سيشن لينك)
+  // State for modals
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     url: "",
     title: "",
   });
+  const [ratingModal, setRatingModal] = useState({
+    isOpen: false,
+    sessionId: null,
+    sessionName: null,
+  });
+  const [showRatings, setShowRatings] = useState(false);
   const modalRef = useRef(null);
 
-  // بيحول أي لينك جوجل درايف لصيغة قابلة للـ embed جوه الـ iframe
+  // Convert Google Drive URL to embeddable format
   const getEmbedUrl = (url) => {
     if (!url) return "";
     const driveIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
@@ -62,8 +72,7 @@ const History = () => {
     }
   };
 
-  // الأوقات (timeFrom/timeTo) بتتخزن وتتبعت من الباك اند بتوقيت UTC،
-  // فبنحولها هنا لتوقيت جهاز اليوزر قبل ما نعرضها
+  // Format UTC time to local time
   const formatUTCTimeToLocal = (timeStr) => {
     if (!timeStr) return "";
     const [hours, minutes] = timeStr.split(":");
@@ -75,15 +84,7 @@ const History = () => {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  useEffect(() => {
-    AOS.init({
-      duration: 800,
-      once: true,
-      easing: "ease-out-quad",
-    });
-  }, []);
-
-  // دالة مساعدة لتحديد شكل ولون الـ Badge بناءً على حالة الحضور
+  // Get attendance status styling
   const getAttendanceStatus = (status) => {
     if (!status)
       return {
@@ -123,48 +124,101 @@ const History = () => {
     };
   };
 
+  useEffect(() => {
+    AOS.init({
+      duration: 800,
+      once: true,
+      easing: "ease-out-quad",
+    });
+  }, []);
+
   if (error) {
     return <Errorpage />;
   }
 
+  const handleOpenRatingModal = (sessionId, sessionName) => {
+    setRatingModal({
+      isOpen: true,
+      sessionId,
+      sessionName,
+    });
+  };
+
+  const handleCloseRatingModal = () => {
+    setRatingModal({
+      isOpen: false,
+      sessionId: null,
+      sessionName: null,
+    });
+  };
+
+  const handleRatingSuccess = () => {
+    refetch(); // Refresh session history
+  };
+
   if (data)
     return (
-      <div className=" bg-[#F8FAFC] p-4 md:p-8 font-sans text-slate-900">
+      <div className="bg-[#F8FAFC] p-4 md:p-8 font-sans text-slate-900 min-h-screen">
         {/* --- Header Section --- */}
         <div className="mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div data-aos="fade-right">
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-              Session <span className="text-one">History</span>
+              Session <span style={{ color: "#7d0a0a" }}>History</span>
             </h1>
             <p className="mt-2 text-slate-500 font-medium">
-              Review your past classes and attendance records.
+              Review your past classes and session ratings
             </p>
           </div>
 
-          <button
-            onClick={refetch}
-            disabled={loading}
-            className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-blue-200 transition-all shadow-sm active:scale-95 disabled:opacity-60"
-            data-aos="fade-left"
-          >
-            <RefreshCcw
-              size={18}
-              className={`${loading ? "animate-spin" : "group-hover:rotate-180"} transition-transform duration-500`}
-            />
-            Refresh History
-          </button>
+          <div className="flex gap-2">
+            {/* Ratings Tab Button */}
+            <button
+              onClick={() => setShowRatings(!showRatings)}
+              className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-yellow-200 transition-all shadow-sm active:scale-95"
+              data-aos="fade-left"
+            >
+              <Star
+                size={18}
+                style={showRatings ? { fill: "#7d0a0a", color: "#7d0a0a" } : {}}
+              />
+              Ratings
+            </button>
+
+            {/* Refresh Button */}
+            <button
+              onClick={refetch}
+              disabled={loading}
+              className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-blue-200 transition-all shadow-sm active:scale-95 disabled:opacity-60"
+              data-aos="fade-left"
+            >
+              <RefreshCcw
+                size={18}
+                className={`${
+                  loading ? "animate-spin" : "group-hover:rotate-180"
+                } transition-transform duration-500`}
+              />
+              Refresh
+            </button>
+          </div>
         </div>
+
+        {/* --- Ratings View --- */}
+        {showRatings && (
+          <div className="mx-auto mb-10" data-aos="fade-up">
+            <SessionRatingsHistory />
+          </div>
+        )}
 
         {/* --- Status Handlers --- */}
         {loading && (
-          <div className=" ">
+          <div className="">
             <Loading />
           </div>
         )}
 
-        {/* --- Main Content --- */}
-        {data?.success && data.data.length > 0 ? (
-          <div className=" mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+        {/* --- Main Content - Sessions List --- */}
+        {!showRatings && data?.success && data.data.length > 0 ? (
+          <div className="mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             {data.data.map((session, index) => {
               const statusStyle = getAttendanceStatus(session.attendanceStatus);
 
@@ -172,16 +226,26 @@ const History = () => {
                 <div
                   key={session.id}
                   data-aos="fade-up"
-                  data-aos-delay={index * 100} // ده بيعمل تتابع (Cascade) للأنيميشن
+                  data-aos-delay={index * 100}
                   className="group relative bg-white border border-slate-100 rounded-[32px] p-6 shadow-sm hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1 transition-all duration-300 flex flex-col"
                 >
                   {/* Top Row: Icon & Badge */}
                   <div className="flex justify-between items-start mb-6">
-                    <div className="w-12 h-12 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center group-hover:bg-one group-hover:text-white transition-colors duration-300">
+                    <div
+                      className="w-12 h-12 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center group-hover:text-white transition-colors duration-300"
+                      style={{ "--group-hover-bg": "#7d0a0a" }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.backgroundColor = "#7d0a0a")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.backgroundColor =
+                          "rgb(241, 245, 249)")
+                      }
+                    >
                       <Archive size={24} />
                     </div>
 
-                    {/* Dynamic Attendance Badge */}
+                    {/* Attendance Status Badge */}
                     <div
                       className={`flex items-center gap-1.5 ${statusStyle.bg} ${statusStyle.text} px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider`}
                     >
@@ -194,7 +258,16 @@ const History = () => {
 
                   {/* Session Info */}
                   <div className="mb-6">
-                    <h3 className="text-xl font-bold text-slate-800 mb-4 group-hover:text-one transition-colors line-clamp-2">
+                    <h3
+                      className="text-xl font-bold text-slate-800 mb-4 transition-colors line-clamp-2"
+                      style={{ "--group-hover-color": "#7d0a0a" }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "#7d0a0a")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.color = "#1e293b")
+                      }
+                    >
                       {session.name}
                     </h3>
 
@@ -228,16 +301,14 @@ const History = () => {
                   </div>
 
                   {/* Lessons Box */}
-                  <div className="bg-slate-50/80 rounded-2xl p-5 mb-8 flex-grow">
-                    {/* Header Section */}
+                  <div className="bg-slate-50/80 rounded-2xl p-5 mb-6 flex-grow">
                     <div className="flex items-center gap-2.5 mb-4 text-slate-700">
-                      <BookOpen size={20} className="text-blue-500" />
+                      <BookOpen size={20} style={{ color: "#7d0a0a" }} />
                       <span className="text-sm font-bold uppercase tracking-widest">
-                        Covered Lessons
+                        Topics Covered
                       </span>
                     </div>
 
-                    {/* Lessons List */}
                     <ul className="space-y-4">
                       {session.lessons.map((lesson) => (
                         <li
@@ -259,48 +330,81 @@ const History = () => {
                             </div>
                           </div>
 
-                          {/* View Material Button - lesson content details page */}
                           <button
                             onClick={() =>
                               navigate(`/user/contentdetails/${lesson.id}`, {
                                 state: { contentType: "lessons" },
                               })
                             }
-                            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            style={{
+                              color: "#7d0a0a",
+                              backgroundColor: "rgba(125, 10, 10, 0.1)",
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.backgroundColor =
+                                "rgba(125, 10, 10, 0.2)")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.backgroundColor =
+                                "rgba(125, 10, 10, 0.1)")
+                            }
                           >
                             <Eye size={14} />
-                           lesson Material
+                            View
                           </button>
                         </li>
                       ))}
                     </ul>
                   </div>
 
-                  {/* CTA Button - Session Content Preview */}
-                  {session.materialLink ? (
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 flex-col">
+                    {session.materialLink && (
+                      <button
+                        onClick={() =>
+                          handlePreviewSession(
+                            session.materialLink,
+                            session.name,
+                          )
+                        }
+                        className="flex items-center justify-center gap-2 w-full bg-slate-100 text-slate-700 py-3 rounded-2xl font-bold hover:bg-slate-200 hover:text-slate-900 transition-all active:scale-[0.98]"
+                      >
+                        Session Material
+                        <ArrowRight size={18} />
+                      </button>
+                    )}
+
+                    {/* Rating Button */}
                     <button
                       onClick={() =>
-                        handlePreviewSession(session.materialLin, session.name)
+                        handleOpenRatingModal(session.id, session.name)
                       }
-                      className="mt-auto flex items-center justify-center gap-2 w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 hover:text-slate-900 transition-all active:scale-[0.98]"
+                      className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold transition-all active:scale-[0.98]"
+                      style={{
+                        color: "#7d0a0a",
+                        backgroundColor: "rgba(125, 10, 10, 0.08)",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.backgroundColor =
+                          "rgba(125, 10, 10, 0.15)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.backgroundColor =
+                          "rgba(125, 10, 10, 0.08)")
+                      }
                     >
-                   Session  Material
-                      <ArrowRight size={18} />
+                      <Star size={18} />
+                      Rate Session
                     </button>
-                  ) : (
-                    <button
-                      disabled
-                      className="mt-auto flex items-center justify-center gap-2 w-full bg-slate-50 text-slate-400 py-4 rounded-2xl font-bold cursor-not-allowed"
-                    >
-                      No Material Available
-                    </button>
-                  )}
+                  </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          !loading && (
+          !loading &&
+          !showRatings && (
             <div
               className="flex flex-col items-center justify-center py-32 text-center"
               data-aos="fade-up"
@@ -312,14 +416,14 @@ const History = () => {
                 No Past Sessions
               </h3>
               <p className="text-slate-500 max-w-xs mx-auto mt-2">
-                You haven't attended any sessions yet. They will appear here
-                once completed.
+                You haven't attended any sessions yet. Sessions will appear here
+                after they are completed.
               </p>
             </div>
           )
         )}
 
-        {/* --- Session Content Preview Modal --- */}
+        {/* --- Session Material Preview Modal --- */}
         {previewModal.isOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div
@@ -331,24 +435,33 @@ const History = () => {
                   {previewModal.title}
                 </h3>
                 <div className="flex items-center gap-2">
-                  {/* Open in New Tab */}
                   <a
                     href={previewModal.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                    style={{
+                      color: "#7d0a0a",
+                      backgroundColor: "rgba(125, 10, 10, 0.1)",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.backgroundColor =
+                        "rgba(125, 10, 10, 0.2)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.backgroundColor =
+                        "rgba(125, 10, 10, 0.1)")
+                    }
                   >
                     <ExternalLink size={14} />
                     Open
                   </a>
-                  {/* Full Screen Toggle */}
                   <button
                     onClick={toggleFullScreen}
                     className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
                   >
-                    Full Screen
+                    Fullscreen
                   </button>
-                  {/* Close */}
                   <button
                     onClick={() =>
                       setPreviewModal({ isOpen: false, url: "", title: "" })
@@ -369,6 +482,16 @@ const History = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* --- Session Rating Modal --- */}
+        {ratingModal.isOpen && (
+          <SessionRatingModal
+            sessionId={ratingModal.sessionId}
+            sessionName={ratingModal.sessionName}
+            onClose={handleCloseRatingModal}
+            onRatingSuccess={handleRatingSuccess}
+          />
         )}
       </div>
     );
