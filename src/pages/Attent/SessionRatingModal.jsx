@@ -116,9 +116,6 @@ const SessionRatingModal = ({
       const existingRatingId = formData?.data?.data?.existingRating?.id;
 
       if (existingRatingId) {
-        // Update existing rating
-        await putData(payload, `/api/user/session-ratings/${existingRatingId}`);
-      } else {
         // Create new rating
         await postData(payload, `/api/user/session-ratings/${sessionId}`);
       }
