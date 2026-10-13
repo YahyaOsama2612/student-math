@@ -8,6 +8,7 @@ import {
   Clock,
   FileText,
   TicketPercent,
+  CalendarClock,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SiCoursera } from "react-icons/si";
@@ -41,6 +42,19 @@ const mainFeatures = [
     buttons: [
       { label: "Exam", icon: FileText, path: "/user/exams" },
       { label: "Diagnostic Exam", icon: BarChart, path: "/user/diagnostic" },
+    ],
+  },
+  {
+    title: "Availability Plans",
+    description:
+      "Share the times you are available and follow up on proposed sessions",
+    MainIcon: CalendarClock,
+    buttons: [
+      {
+        label: "Manage Availability",
+        icon: CalendarClock,
+        path: "/user/availability-plans",
+      },
     ],
   },
   {
