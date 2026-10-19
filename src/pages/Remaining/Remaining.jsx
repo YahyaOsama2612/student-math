@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
@@ -60,9 +60,11 @@ const formatDateTime = (value) =>
 
 const Remaining = () => {
   // ─── 1) كل الـ useState في الأول ──────────────────────────
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedLessonId = searchParams.get("lessonId");
   const [selectedLesson, setSelectedLesson] = useState(null);
+  const [startingQuizIds, setStartingQuizIds] = useState({});
 
   // حالة الرفع لكل واجب: { [id]: { file, notes, error, submitting } }
   const [uploads, setUploads] = useState({});
@@ -131,6 +133,28 @@ const Remaining = () => {
   // ─── 5) Functions ─────────────────────────────────────────
   const handleSelectLesson = (lessonId) => setSearchParams({ lessonId });
   const handleClearFilter = () => setSearchParams({});
+
+  const handleStartQuiz = async (quizId) => {
+    if (startingQuizIds[quizId]) return;
+
+    setStartingQuizIds((prev) => ({ ...prev, [quizId]: true }));
+    try {
+      const res = await postData(
+        {},
+        `/api/user/quizzes/${quizId}/start`,
+        "Quiz started successfully!",
+      );
+      if (res) navigate(`/user/quiz/${quizId}`);
+    } catch (err) {
+      console.error("Failed to start quiz:", err);
+    } finally {
+      setStartingQuizIds((prev) => {
+        const next = { ...prev };
+        delete next[quizId];
+        return next;
+      });
+    }
+  };
 
   const updateUpload = (id, patch) =>
     setUploads((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -417,8 +441,12 @@ const Remaining = () => {
                             {quiz.description || "No description provided"}
                           </p>
                         </div>
-                        <button className="px-4 py-2 bg-one text-white text-sm font-medium rounded-lg hover:bg-one/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-one/40 focus-visible:ring-offset-2 transition-colors shadow-sm">
-                          Start Now
+                        <button
+                          onClick={() => handleStartQuiz(quiz.id)}
+                          disabled={startingQuizIds[quiz.id]}
+                          className="px-4 py-2 bg-one text-white text-sm font-medium rounded-lg hover:bg-one/90 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-one/40 focus-visible:ring-offset-2 transition-colors shadow-sm"
+                        >
+                          {startingQuizIds[quiz.id] ? "Starting..." : "Start Now"}
                         </button>
                       </div>
 
