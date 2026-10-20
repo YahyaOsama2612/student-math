@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Clock,
   X,
+  Play,
 } from "lucide-react";
 
 const ContentDetails = () => {
@@ -31,6 +32,8 @@ const ContentDetails = () => {
     isOpen: false,
     url: "",
     title: "",
+    type: "",
+    bunnyGuid: null,
   });
   const modalRef = useRef(null);
 
@@ -105,13 +108,25 @@ const ContentDetails = () => {
     return url;
   };
 
-  const handlePreview = (rawUrl, title) => {
-    const embedUrl = getEmbedUrl(rawUrl);
-    setPreviewModal({
-      isOpen: true,
-      url: embedUrl,
-      title: title,
-    });
+  const handlePreview = (rawUrl, title, type = "pdf", bunnyGuid = null) => {
+    if (type === "bunny" && bunnyGuid) {
+      setPreviewModal({
+        isOpen: true,
+        url: "",
+        title,
+        type: "bunny",
+        bunnyGuid,
+      });
+    } else {
+      const embedUrl = getEmbedUrl(rawUrl);
+      setPreviewModal({
+        isOpen: true,
+        url: embedUrl,
+        title,
+        type,
+        bunnyGuid: null,
+      });
+    }
   };
 
   const rawQuizzes = quizzesData?.data?.quizzes || quizzesData?.quizzes || [];
@@ -321,21 +336,31 @@ const ContentDetails = () => {
                         {idea.idea}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {idea.bunnyGuid && (
+                        <button
+                          onClick={() =>
+                            handlePreview(null, `Video: ${idea.idea}`, "bunny", idea.bunnyGuid)
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5" /> Watch Video
+                        </button>
+                      )}
                       {idea.video && (
                         <button
                           onClick={() =>
-                            handlePreview(idea.video, `Video: ${idea.idea}`)
+                            handlePreview(idea.video, `Video: ${idea.idea}`, "video")
                           }
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
                         >
-                          <Video className="w-3.5 h-3.5" /> Watch Video
+                          <Video className="w-3.5 h-3.5" /> Drive Video
                         </button>
                       )}
                       {idea.pdf && (
                         <button
                           onClick={() =>
-                            handlePreview(idea.pdf, `PDF: ${idea.idea}`)
+                            handlePreview(idea.pdf, `PDF: ${idea.idea}`, "pdf")
                           }
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
                         >
@@ -510,7 +535,7 @@ const ContentDetails = () => {
                 {/* Close Button */}
                 <button
                   onClick={() =>
-                    setPreviewModal({ isOpen: false, url: "", title: "" })
+                    setPreviewModal({ isOpen: false, url: "", title: "", type: "", bunnyGuid: null })
                   }
                   className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
                 >
@@ -519,12 +544,23 @@ const ContentDetails = () => {
               </div>
             </div>
             <div className="flex-1 bg-gray-900">
-              <iframe
-                src={previewModal.url}
-                title={previewModal.title}
-                className="w-full h-full border-0"
-                allowFullScreen
-              ></iframe>
+              {previewModal.type === "bunny" && previewModal.bunnyGuid ? (
+                <iframe
+                  src={`https://iframe.mediadelivery.net/embed/427553/${previewModal.bunnyGuid}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
+                  title={previewModal.title}
+                  className="w-full h-full border-0"
+                  loading="lazy"
+                  allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                ></iframe>
+              ) : (
+                <iframe
+                  src={previewModal.url}
+                  title={previewModal.title}
+                  className="w-full h-full border-0"
+                  allowFullScreen
+                ></iframe>
+              )}
             </div>
           </div>
         </div>

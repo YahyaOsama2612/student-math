@@ -332,8 +332,8 @@ const History = () => {
 
                           <button
                             onClick={() =>
-                              navigate(`/user/contentdetails/${lesson.id}`, {
-                                state: { contentType: "lessons" },
+                              navigate(`/user/lesson/${lesson.id}`, {
+                                state: { fromPurchases: true },
                               })
                             }
                             className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
@@ -351,7 +351,7 @@ const History = () => {
                             }
                           >
                             <Eye size={14} />
-                            View
+                            Material
                           </button>
                         </li>
                       ))}

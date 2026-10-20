@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Calendar,
   Clock,
@@ -8,6 +9,7 @@ import {
   Video,
   CheckCircle2,
   ArrowRight,
+  Eye,
 } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
@@ -18,6 +20,7 @@ import AOS from "aos";
 import "aos/dist/aos.css";
 
 const Upcoming = () => {
+  const navigate = useNavigate();
   const { data, loading, error, refetch } = useGet(
     "/api/user/sessions/upcoming",
   );
@@ -174,20 +177,34 @@ const Upcoming = () => {
                   {session.lessons.map((lesson) => (
                     <li
                       key={lesson.id}
-                      className="flex items-start gap-2 text-sm text-slate-600"
+                      className="flex items-start justify-between gap-2 text-sm text-slate-600"
                     >
-                      <CheckCircle2
-                        size={14}
-                        className="text-emerald-500 mt-0.5 shrink-0"
-                      />
-                      <div>
-                        <span className="font-semibold block leading-tight">
-                          {lesson.name}
-                        </span>
-                        <span className="text-[11px] text-slate-400 capitalize">
-                          {lesson.course.name} • {lesson.chapter.name}
-                        </span>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2
+                          size={14}
+                          className="text-emerald-500 mt-0.5 shrink-0"
+                        />
+                        <div>
+                          <span className="font-semibold block leading-tight">
+                            {lesson.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400 capitalize">
+                            {lesson.course.name} • {lesson.chapter.name}
+                          </span>
+                        </div>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/user/lesson/${lesson.id}`, {
+                            state: { fromPurchases: true },
+                          });
+                        }}
+                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100"
+                      >
+                        <Eye size={14} />
+                        Material
+                      </button>
                     </li>
                   ))}
                 </ul>
