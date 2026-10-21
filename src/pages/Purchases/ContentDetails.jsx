@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import Hls from "hls.js";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
@@ -22,6 +23,63 @@ import {
   Play,
 } from "lucide-react";
 
+// Plays the signed Bunny HLS playlist (.m3u8) returned in idea.video.streamUrl
+const HlsPlayer = ({ src, title }) => {
+  const videoRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return undefined;
+
+    setFailed(false);
+    let hls;
+
+    if (Hls.isSupported()) {
+      hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) setFailed(true);
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari / iOS play HLS natively
+      video.src = src;
+      video.play().catch(() => {});
+    } else {
+      setFailed(true);
+    }
+
+    return () => {
+      if (hls) hls.destroy();
+    };
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-center text-white/80 text-sm px-6">
+        Couldn&apos;t load this video. The link may have expired, please refresh
+        the page.
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      title={title}
+      controls
+      playsInline
+      controlsList="nodownload"
+      onContextMenu={(e) => e.preventDefault()}
+      className="w-full h-full bg-black"
+    />
+  );
+};
+
 const ContentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -33,7 +91,7 @@ const ContentDetails = () => {
     url: "",
     title: "",
     type: "",
-    bunnyGuid: null,
+    streamUrl: null,
   });
   const modalRef = useRef(null);
 
@@ -108,23 +166,22 @@ const ContentDetails = () => {
     return url;
   };
 
-  const handlePreview = (rawUrl, title, type = "pdf", bunnyGuid = null) => {
-    if (type === "bunny" && bunnyGuid) {
+  const handlePreview = (rawUrl, title, type = "pdf", streamUrl = null) => {
+    if (type === "hls" && streamUrl) {
       setPreviewModal({
         isOpen: true,
         url: "",
         title,
-        type: "bunny",
-        bunnyGuid,
+        type: "hls",
+        streamUrl,
       });
     } else {
-      const embedUrl = getEmbedUrl(rawUrl);
       setPreviewModal({
         isOpen: true,
-        url: embedUrl,
+        url: getEmbedUrl(rawUrl),
         title,
         type,
-        bunnyGuid: null,
+        streamUrl: null,
       });
     }
   };
@@ -337,24 +394,19 @@ const ContentDetails = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {idea.bunnyGuid && (
+                      {idea.video?.streamUrl && (
                         <button
                           onClick={() =>
-                            handlePreview(null, `Video: ${idea.idea}`, "bunny", idea.bunnyGuid)
+                            handlePreview(
+                              null,
+                              `Video: ${idea.idea}`,
+                              "hls",
+                              idea.video.streamUrl,
+                            )
                           }
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
                         >
                           <Play className="w-3.5 h-3.5" /> Watch Video
-                        </button>
-                      )}
-                      {idea.video && (
-                        <button
-                          onClick={() =>
-                            handlePreview(idea.video, `Video: ${idea.idea}`, "video")
-                          }
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Video className="w-3.5 h-3.5" /> Drive Video
                         </button>
                       )}
                       {idea.pdf && (
@@ -504,7 +556,6 @@ const ContentDetails = () => {
       </div>
 
       {/* مودال العرض للـ PDF والفيديو */}
-      {/* مودال العرض للـ PDF والفيديو */}
       {previewModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div
@@ -516,15 +567,17 @@ const ContentDetails = () => {
                 {previewModal.title}
               </h3>
               <div className="flex items-center gap-2">
-                {/* Download Button */}
-                <a
-                  href={previewModal.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
-                >
-                  Download/Open
-                </a>
+                {/* Download Button (PDF only) */}
+                {previewModal.type !== "hls" && previewModal.url && (
+                  <a
+                    href={previewModal.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
+                  >
+                    Download/Open
+                  </a>
+                )}
                 {/* Full Screen Toggle Button */}
                 <button
                   onClick={toggleFullScreen}
@@ -535,7 +588,13 @@ const ContentDetails = () => {
                 {/* Close Button */}
                 <button
                   onClick={() =>
-                    setPreviewModal({ isOpen: false, url: "", title: "", type: "", bunnyGuid: null })
+                    setPreviewModal({
+                      isOpen: false,
+                      url: "",
+                      title: "",
+                      type: "",
+                      streamUrl: null,
+                    })
                   }
                   className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
                 >
@@ -544,15 +603,12 @@ const ContentDetails = () => {
               </div>
             </div>
             <div className="flex-1 bg-gray-900">
-              {previewModal.type === "bunny" && previewModal.bunnyGuid ? (
-                <iframe
-                  src={`https://iframe.mediadelivery.net/embed/427553/${previewModal.bunnyGuid}?autoplay=true&loop=false&muted=false&preload=true&responsive=true`}
+              {previewModal.type === "hls" && previewModal.streamUrl ? (
+                <HlsPlayer
+                  key={previewModal.streamUrl}
+                  src={previewModal.streamUrl}
                   title={previewModal.title}
-                  className="w-full h-full border-0"
-                  loading="lazy"
-                  allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                ></iframe>
+                />
               ) : (
                 <iframe
                   src={previewModal.url}
