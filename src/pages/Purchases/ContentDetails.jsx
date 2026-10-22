@@ -80,6 +80,83 @@ const HlsPlayer = ({ src, title }) => {
   );
 };
 
+// Fetches the PDF and shows it through a local blob: URL so the browser renders
+// it inline even if the backend sends Content-Disposition: attachment or
+// X-Frame-Options headers. Google Drive links are embedded directly.
+const PdfPreview = ({ url, title }) => {
+  const isDrive = /drive\.google\.com/.test(url || "");
+  const [state, setState] = useState({
+    blobUrl: null,
+    loading: !isDrive,
+    error: false,
+  });
+
+  useEffect(() => {
+    if (!url || isDrive) return undefined;
+
+    const controller = new AbortController();
+    let objectUrl = null;
+    setState({ blobUrl: null, loading: true, error: false });
+
+    fetch(url, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((buffer) => {
+        objectUrl = URL.createObjectURL(
+          new Blob([buffer], { type: "application/pdf" }),
+        );
+        setState({ blobUrl: objectUrl, loading: false, error: false });
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        setState({ blobUrl: null, loading: false, error: true });
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, isDrive]);
+
+  if (isDrive) {
+    return (
+      <iframe
+        src={url}
+        title={title}
+        className="w-full h-full border-0 bg-white"
+        allowFullScreen
+      ></iframe>
+    );
+  }
+
+  if (state.loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-white/70 text-sm">
+        Loading PDF...
+      </div>
+    );
+  }
+
+  if (state.error || !state.blobUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-center text-white/80 text-sm px-6">
+        Couldn&apos;t load this PDF. Please try again later.
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      key={state.blobUrl}
+      src={`${state.blobUrl}#toolbar=0&navpanes=0`}
+      title={title}
+      className="w-full h-full border-0 bg-white"
+    ></iframe>
+  );
+};
+
 const ContentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -567,17 +644,6 @@ const ContentDetails = () => {
                 {previewModal.title}
               </h3>
               <div className="flex items-center gap-2">
-                {/* Download Button (PDF only) */}
-                {previewModal.type !== "hls" && previewModal.url && (
-                  <a
-                    href={previewModal.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
-                  >
-                    Download/Open
-                  </a>
-                )}
                 {/* Full Screen Toggle Button */}
                 <button
                   onClick={toggleFullScreen}
@@ -610,12 +676,11 @@ const ContentDetails = () => {
                   title={previewModal.title}
                 />
               ) : (
-                <iframe
-                  src={previewModal.url}
+                <PdfPreview
+                  key={previewModal.url}
+                  url={previewModal.url}
                   title={previewModal.title}
-                  className="w-full h-full border-0"
-                  allowFullScreen
-                ></iframe>
+                />
               )}
             </div>
           </div>
