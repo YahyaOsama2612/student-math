@@ -28,9 +28,6 @@ import SessionRatingsHistory from "./SessionRatingsHistory";
 import AOS from "aos";
 import "aos/dist/aos.css";
 
-// Server sends times in UTC — display them as UTC+3
-const DISPLAY_OFFSET_HOURS = 3;
-
 const BRAND = "#7d0a0a";
 
 const History = () => {
@@ -153,14 +150,12 @@ const History = () => {
     }
   };
 
-  // "08:30:00" (UTC) -> "11:30 AM" (UTC+3), independent of the browser's timezone
+  // Time comes correct from the backend — just format it as-is: "11:30:00" -> "11:30 AM"
   const formatUTCTime = (timeStr) => {
     if (!timeStr) return "";
     const [h, m] = timeStr.split(":").map((v) => parseInt(v, 10));
-    const totalMinutes =
-      (((h + DISPLAY_OFFSET_HOURS) * 60 + (m || 0)) % 1440 + 1440) % 1440;
-    const hours24 = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
+    const hours24 = h || 0;
+    const minutes = m || 0;
     const period = hours24 >= 12 ? "PM" : "AM";
     const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
     return `${String(hours12).padStart(2, "0")}:${String(minutes).padStart(
@@ -169,15 +164,10 @@ const History = () => {
     )} ${period}`;
   };
 
-  // Date in UTC+3 (uses session start time so a late-night session shows the right day)
-  const formatSessionDate = (dateStr, timeFrom) => {
+  // Date as sent by the backend (formatted in UTC so the day never shifts)
+  const formatSessionDate = (dateStr) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
-    if (timeFrom) {
-      const [h, m] = timeFrom.split(":").map((v) => parseInt(v, 10));
-      d.setUTCHours(h || 0, m || 0, 0, 0);
-    }
-    d.setTime(d.getTime() + DISPLAY_OFFSET_HOURS * 60 * 60 * 1000);
     return d.toLocaleDateString("en-US", {
       weekday: "long",
       month: "short",
@@ -384,10 +374,7 @@ const History = () => {
                           <Calendar size={16} />
                         </div>
                         <span className="text-sm font-medium">
-                          {formatSessionDate(
-                            session.sessionDate,
-                            session.timeFrom,
-                          )}
+                          {formatSessionDate(session.sessionDate)}
                         </span>
                       </div>
                       <div className="flex items-center gap-3 text-slate-500">
