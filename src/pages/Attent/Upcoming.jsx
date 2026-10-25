@@ -26,17 +26,19 @@ const Upcoming = () => {
   );
   const { postData, loading: joinLoading } = usePost();
 
-  // الأوقات (timeFrom/timeTo) بتتخزن وتتبعت من الباك اند بتوقيت UTC،
-  // فبنحولها هنا لتوقيت جهاز اليوزر قبل ما نعرضها
+  // الأوقات (timeFrom/timeTo) جاية صح من الباك اند، فبنعرضها زي ما هي
+  // "11:30:00" -> "11:30 AM"
   const formatUTCTimeToLocal = (timeStr) => {
     if (!timeStr) return "";
-    const [hours, minutes] = timeStr.split(":");
-    const d = new Date();
-    d.setUTCHours(parseInt(hours, 10));
-    d.setUTCMinutes(parseInt(minutes, 10));
-    d.setUTCSeconds(0);
-    d.setUTCMilliseconds(0);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const [h, m] = timeStr.split(":").map((v) => parseInt(v, 10));
+    const hours24 = h || 0;
+    const minutes = m || 0;
+    const period = hours24 >= 12 ? "PM" : "AM";
+    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+    return `${String(hours12).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0",
+    )} ${period}`;
   };
 
   useEffect(() => {
@@ -150,6 +152,7 @@ const Upcoming = () => {
                           weekday: "long",
                           month: "short",
                           day: "numeric",
+                          timeZone: "UTC",
                         },
                       )}
                     </span>
@@ -174,7 +177,7 @@ const Upcoming = () => {
                   </span>
                 </div>
                 <ul className="space-y-2.5">
-                  {session.lessons.map((lesson) => (
+                  {session.lessons?.map((lesson) => (
                     <li
                       key={lesson.id}
                       className="flex items-start justify-between gap-2 text-sm text-slate-600"
@@ -189,7 +192,7 @@ const Upcoming = () => {
                             {lesson.name}
                           </span>
                           <span className="text-[11px] text-slate-400 capitalize">
-                            {lesson.course.name} • {lesson.chapter.name}
+                            {lesson.course?.name} • {lesson.chapter?.name}
                           </span>
                         </div>
                       </div>
