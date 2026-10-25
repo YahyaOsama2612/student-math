@@ -14,7 +14,9 @@ import {
   Eye,
   X,
   Star,
-  MessageSquare,
+  FileText,
+  GraduationCap,
+  Link2,
 } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -26,6 +28,11 @@ import SessionRatingsHistory from "./SessionRatingsHistory";
 import AOS from "aos";
 import "aos/dist/aos.css";
 
+// Server sends times in UTC — display them as UTC+3
+const DISPLAY_OFFSET_HOURS = 3;
+
+const BRAND = "#7d0a0a";
+
 const History = () => {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useGet(
@@ -36,8 +43,11 @@ const History = () => {
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     url: "",
+    rawUrl: "",
     title: "",
+    loading: false,
   });
+  const blobUrlRef = useRef(null);
   const [ratingModal, setRatingModal] = useState({
     isOpen: false,
     sessionId: null,
@@ -46,23 +56,94 @@ const History = () => {
   const [showRatings, setShowRatings] = useState(false);
   const modalRef = useRef(null);
 
-  // Convert Google Drive URL to embeddable format
+  // Convert Google Drive URL to embeddable format (other URLs are returned as-is)
   const getEmbedUrl = (url) => {
     if (!url) return "";
-    const driveIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
-    if (driveIdMatch && driveIdMatch[1]) {
-      return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
+    if (url.includes("drive.google.com")) {
+      const driveIdMatch =
+        url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
+      if (driveIdMatch && driveIdMatch[1]) {
+        return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
+      }
     }
     return url;
   };
 
-  const handlePreviewSession = (rawUrl, title) => {
+  // Backend-uploaded PDFs (e.g. https://bcknd.mathshouse.net/uploads/...pdf)
+  const isBackendPdf = (url) =>
+    /\.pdf(\?|#|$)/i.test(url) || url.includes("bcknd.mathshouse.net/uploads");
+
+  const revokeBlobUrl = () => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  };
+
+  const handlePreview = async (rawUrl, title) => {
+    revokeBlobUrl();
+
+    if (!isBackendPdf(rawUrl)) {
+      setPreviewModal({
+        isOpen: true,
+        url: getEmbedUrl(rawUrl),
+        rawUrl,
+        title,
+        loading: false,
+      });
+      return;
+    }
+
+    // Open the modal immediately with a loader
+    setPreviewModal({ isOpen: true, url: "", rawUrl, title, loading: true });
+
+    try {
+      // Fetch the file and re-wrap it as application/pdf so the browser
+      // renders it inline instead of downloading it (ignores Content-Disposition)
+      const res = await fetch(rawUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buffer = await res.arrayBuffer();
+      const blob = new Blob([buffer], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+      blobUrlRef.current = blobUrl;
+
+      setPreviewModal((prev) =>
+        prev.isOpen && prev.rawUrl === rawUrl
+          ? { ...prev, url: `${blobUrl}#toolbar=1&view=FitH`, loading: false }
+          : prev,
+      );
+      // If the modal was closed/changed meanwhile, release the blob
+      if (blobUrlRef.current !== blobUrl) URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      // Fallback (e.g. CORS blocked): Google Docs viewer
+      console.warn("PDF fetch failed, using Google viewer:", err);
+      setPreviewModal((prev) =>
+        prev.isOpen && prev.rawUrl === rawUrl
+          ? {
+            ...prev,
+            url: `https://docs.google.com/viewer?url=${encodeURIComponent(
+              rawUrl,
+            )}&embedded=true`,
+            loading: false,
+          }
+          : prev,
+      );
+    }
+  };
+
+  const closePreview = () => {
+    revokeBlobUrl();
     setPreviewModal({
-      isOpen: true,
-      url: getEmbedUrl(rawUrl),
-      title,
+      isOpen: false,
+      url: "",
+      rawUrl: "",
+      title: "",
+      loading: false,
     });
   };
+
+  // Release any blob URL on unmount
+  useEffect(() => () => revokeBlobUrl(), []);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -72,30 +153,53 @@ const History = () => {
     }
   };
 
-  // Format UTC time to local time
-  const formatUTCTimeToLocal = (timeStr) => {
+  // "08:30:00" (UTC) -> "11:30 AM" (UTC+3), independent of the browser's timezone
+  const formatUTCTime = (timeStr) => {
     if (!timeStr) return "";
-    const [hours, minutes] = timeStr.split(":");
-    const d = new Date();
-    d.setUTCHours(parseInt(hours, 10));
-    d.setUTCMinutes(parseInt(minutes, 10));
-    d.setUTCSeconds(0);
-    d.setUTCMilliseconds(0);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const [h, m] = timeStr.split(":").map((v) => parseInt(v, 10));
+    const totalMinutes =
+      (((h + DISPLAY_OFFSET_HOURS) * 60 + (m || 0)) % 1440 + 1440) % 1440;
+    const hours24 = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const period = hours24 >= 12 ? "PM" : "AM";
+    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+    return `${String(hours12).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0",
+    )} ${period}`;
+  };
+
+  // Date in UTC+3 (uses session start time so a late-night session shows the right day)
+  const formatSessionDate = (dateStr, timeFrom) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (timeFrom) {
+      const [h, m] = timeFrom.split(":").map((v) => parseInt(v, 10));
+      d.setUTCHours(h || 0, m || 0, 0, 0);
+    }
+    d.setTime(d.getTime() + DISPLAY_OFFSET_HOURS * 60 * 60 * 1000);
+    return d.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
   };
 
   // Get attendance status styling
   const getAttendanceStatus = (status) => {
-    if (!status)
+    const s = status ? status.toLowerCase() : "";
+
+    if (!s || s === "not_marked") {
       return {
-        label: "Not Set",
+        label: "Not Marked",
         bg: "bg-slate-100",
         text: "text-slate-600",
         dot: "bg-slate-400",
         icon: <MinusCircle size={14} />,
       };
-
-    const s = status.toLowerCase();
+    }
     if (s === "attended" || s === "present") {
       return {
         label: "Attended",
@@ -116,7 +220,7 @@ const History = () => {
     }
 
     return {
-      label: status,
+      label: status.replace(/_/g, " "),
       bg: "bg-blue-50",
       text: "text-blue-700",
       dot: "bg-blue-500",
@@ -137,23 +241,35 @@ const History = () => {
   }
 
   const handleOpenRatingModal = (sessionId, sessionName) => {
-    setRatingModal({
-      isOpen: true,
-      sessionId,
-      sessionName,
-    });
+    setRatingModal({ isOpen: true, sessionId, sessionName });
   };
 
   const handleCloseRatingModal = () => {
-    setRatingModal({
-      isOpen: false,
-      sessionId: null,
-      sessionName: null,
-    });
+    setRatingModal({ isOpen: false, sessionId: null, sessionName: null });
   };
 
   const handleRatingSuccess = () => {
-    refetch(); // Refresh session history
+    refetch();
+  };
+
+  // One material button (disabled when the link is missing)
+  const MaterialButton = ({ url, label, icon: Icon, title }) => {
+    const available = Boolean(url);
+    return (
+      <button
+        type="button"
+        disabled={!available}
+        onClick={() => available && handlePreview(url, title)}
+        title={available ? label : `${label} not available yet`}
+        className={`flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-bold transition-all ${available
+            ? "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
+            : "bg-slate-50 text-slate-300 cursor-not-allowed"
+          }`}
+      >
+        <Icon size={18} style={available ? { color: BRAND } : {}} />
+        <span className="leading-tight text-center">{label}</span>
+      </button>
+    );
   };
 
   if (data)
@@ -163,7 +279,7 @@ const History = () => {
         <div className="mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div data-aos="fade-right">
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-              Session <span style={{ color: "#7d0a0a" }}>History</span>
+              Session <span style={{ color: BRAND }}>History</span>
             </h1>
             <p className="mt-2 text-slate-500 font-medium">
               Review your past classes and session ratings
@@ -179,7 +295,7 @@ const History = () => {
             >
               <Star
                 size={18}
-                style={showRatings ? { fill: "#7d0a0a", color: "#7d0a0a" } : {}}
+                style={showRatings ? { fill: BRAND, color: BRAND } : {}}
               />
               Ratings
             </button>
@@ -193,9 +309,8 @@ const History = () => {
             >
               <RefreshCcw
                 size={18}
-                className={`${
-                  loading ? "animate-spin" : "group-hover:rotate-180"
-                } transition-transform duration-500`}
+                className={`${loading ? "animate-spin" : "group-hover:rotate-180"
+                  } transition-transform duration-500`}
               />
               Refresh
             </button>
@@ -210,11 +325,7 @@ const History = () => {
         )}
 
         {/* --- Status Handlers --- */}
-        {loading && (
-          <div className="">
-            <Loading />
-          </div>
-        )}
+        {loading && <Loading />}
 
         {/* --- Main Content - Sessions List --- */}
         {!showRatings && data?.success && data.data.length > 0 ? (
@@ -233,13 +344,12 @@ const History = () => {
                   <div className="flex justify-between items-start mb-6">
                     <div
                       className="w-12 h-12 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center group-hover:text-white transition-colors duration-300"
-                      style={{ "--group-hover-bg": "#7d0a0a" }}
                       onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#7d0a0a")
+                        (e.currentTarget.style.backgroundColor = BRAND)
                       }
                       onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor =
-                          "rgb(241, 245, 249)")
+                      (e.currentTarget.style.backgroundColor =
+                        "rgb(241, 245, 249)")
                       }
                     >
                       <Archive size={24} />
@@ -260,10 +370,7 @@ const History = () => {
                   <div className="mb-6">
                     <h3
                       className="text-xl font-bold text-slate-800 mb-4 transition-colors line-clamp-2"
-                      style={{ "--group-hover-color": "#7d0a0a" }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.color = "#7d0a0a")
-                      }
+                      onMouseEnter={(e) => (e.currentTarget.style.color = BRAND)}
                       onMouseLeave={(e) =>
                         (e.currentTarget.style.color = "#1e293b")
                       }
@@ -277,14 +384,9 @@ const History = () => {
                           <Calendar size={16} />
                         </div>
                         <span className="text-sm font-medium">
-                          {new Date(session.sessionDate).toLocaleDateString(
-                            "en-US",
-                            {
-                              weekday: "long",
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            },
+                          {formatSessionDate(
+                            session.sessionDate,
+                            session.timeFrom,
                           )}
                         </span>
                       </div>
@@ -293,8 +395,8 @@ const History = () => {
                           <Clock size={16} />
                         </div>
                         <span className="text-sm font-medium">
-                          {formatUTCTimeToLocal(session.timeFrom)} —{" "}
-                          {formatUTCTimeToLocal(session.timeTo)}
+                          {formatUTCTime(session.timeFrom)} —{" "}
+                          {formatUTCTime(session.timeTo)}
                         </span>
                       </div>
                     </div>
@@ -303,14 +405,14 @@ const History = () => {
                   {/* Lessons Box */}
                   <div className="bg-slate-50/80 rounded-2xl p-5 mb-6 flex-grow">
                     <div className="flex items-center gap-2.5 mb-4 text-slate-700">
-                      <BookOpen size={20} style={{ color: "#7d0a0a" }} />
+                      <BookOpen size={20} style={{ color: BRAND }} />
                       <span className="text-sm font-bold uppercase tracking-widest">
                         Topics Covered
                       </span>
                     </div>
 
                     <ul className="space-y-4">
-                      {session.lessons.map((lesson) => (
+                      {session.lessons?.map((lesson) => (
                         <li
                           key={lesson.id}
                           className="flex items-start justify-between gap-3 text-base text-slate-600"
@@ -325,7 +427,7 @@ const History = () => {
                                 {lesson.name}
                               </span>
                               <span className="text-xs font-medium text-slate-500 capitalize mt-1 block">
-                                {lesson.course.name} • {lesson.chapter.name}
+                                {lesson.course?.name} • {lesson.chapter?.name}
                               </span>
                             </div>
                           </div>
@@ -338,16 +440,16 @@ const History = () => {
                             }
                             className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                             style={{
-                              color: "#7d0a0a",
+                              color: BRAND,
                               backgroundColor: "rgba(125, 10, 10, 0.1)",
                             }}
                             onMouseEnter={(e) =>
-                              (e.currentTarget.style.backgroundColor =
-                                "rgba(125, 10, 10, 0.2)")
+                            (e.currentTarget.style.backgroundColor =
+                              "rgba(125, 10, 10, 0.2)")
                             }
                             onMouseLeave={(e) =>
-                              (e.currentTarget.style.backgroundColor =
-                                "rgba(125, 10, 10, 0.1)")
+                            (e.currentTarget.style.backgroundColor =
+                              "rgba(125, 10, 10, 0.1)")
                             }
                           >
                             <Eye size={14} />
@@ -358,46 +460,51 @@ const History = () => {
                     </ul>
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="flex gap-2 flex-col">
-                    {session.materialLink && (
-                      <button
-                        onClick={() =>
-                          handlePreviewSession(
-                            session.materialLink,
-                            session.name,
-                          )
-                        }
-                        className="flex items-center justify-center gap-2 w-full bg-slate-100 text-slate-700 py-3 rounded-2xl font-bold hover:bg-slate-200 hover:text-slate-900 transition-all active:scale-[0.98]"
-                      >
-                        Session Material
-                        <ArrowRight size={18} />
-                      </button>
-                    )}
-
-                    {/* Rating Button */}
-                    <button
-                      onClick={() =>
-                        handleOpenRatingModal(session.id, session.name)
-                      }
-                      className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold transition-all active:scale-[0.98]"
-                      style={{
-                        color: "#7d0a0a",
-                        backgroundColor: "rgba(125, 10, 10, 0.08)",
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor =
-                          "rgba(125, 10, 10, 0.15)")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor =
-                          "rgba(125, 10, 10, 0.08)")
-                      }
-                    >
-                      <Star size={18} />
-                      Rate Session
-                    </button>
+                  {/* Material Buttons */}
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <MaterialButton
+                      url={session.materialLink}
+                      label="Material Link"
+                      icon={Link2}
+                      title={`${session.name} — Material`}
+                    />
+                    <MaterialButton
+                      url={session.session_pdf}
+                      label="Session PDF"
+                      icon={FileText}
+                      title={`${session.name} — Session PDF`}
+                    />
+                    <MaterialButton
+                      url={session.teacher_explanation_pdf}
+                      label="Teacher PDF"
+                      icon={GraduationCap}
+                      title={`${session.name} — Teacher PDF`}
+                    />
                   </div>
+
+                  {/* Rating Button */}
+                  <button
+                    onClick={() =>
+                      handleOpenRatingModal(session.id, session.name)
+                    }
+                    className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold transition-all active:scale-[0.98]"
+                    style={{
+                      color: BRAND,
+                      backgroundColor: "rgba(125, 10, 10, 0.08)",
+                    }}
+                    onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor =
+                      "rgba(125, 10, 10, 0.15)")
+                    }
+                    onMouseLeave={(e) =>
+                    (e.currentTarget.style.backgroundColor =
+                      "rgba(125, 10, 10, 0.08)")
+                    }
+                  >
+                    <Star size={18} />
+                    Rate Session
+                    <ArrowRight size={18} />
+                  </button>
                 </div>
               );
             })}
@@ -423,11 +530,15 @@ const History = () => {
           )
         )}
 
-        {/* --- Session Material Preview Modal --- */}
+        {/* --- Preview Modal (Material / Session PDF / Teacher PDF) --- */}
         {previewModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={closePreview}
+          >
             <div
               ref={modalRef}
+              onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
             >
               <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
@@ -436,22 +547,14 @@ const History = () => {
                 </h3>
                 <div className="flex items-center gap-2">
                   <a
-                    href={previewModal.url}
+                    href={previewModal.rawUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                     style={{
-                      color: "#7d0a0a",
+                      color: BRAND,
                       backgroundColor: "rgba(125, 10, 10, 0.1)",
                     }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "rgba(125, 10, 10, 0.2)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "rgba(125, 10, 10, 0.1)")
-                    }
                   >
                     <ExternalLink size={14} />
                     Open
@@ -463,22 +566,28 @@ const History = () => {
                     Fullscreen
                   </button>
                   <button
-                    onClick={() =>
-                      setPreviewModal({ isOpen: false, url: "", title: "" })
-                    }
+                    onClick={closePreview}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
-              <div className="flex-1 bg-gray-900">
-                <iframe
-                  src={previewModal.url}
-                  title={previewModal.title}
-                  className="w-full h-full border-0"
-                  allowFullScreen
-                ></iframe>
+              <div className="flex-1 bg-gray-900 relative">
+                {previewModal.loading ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/80">
+                    <RefreshCcw size={28} className="animate-spin" />
+                    <span className="text-sm font-medium">Loading PDF…</span>
+                  </div>
+                ) : (
+                  <iframe
+                    key={previewModal.url}
+                    src={previewModal.url}
+                    title={previewModal.title}
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                  ></iframe>
+                )}
               </div>
             </div>
           </div>
