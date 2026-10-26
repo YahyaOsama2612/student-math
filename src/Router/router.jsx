@@ -24,7 +24,7 @@ import ActiveExam from "../pages/Exams/ActiveExam";
 import Review from "../pages/Exams/Review";
 import MyCourses from "../pages/MyCourses/MyCourses";
 import OneCourses from "../pages/MyCourses/OneCourses";
-import Lesson  from "../pages/Lesson/lesson";
+import Lesson from "../pages/Lesson/lesson";
 import Chapters from "../pages/Chapters/Chapters";
 import OneChapter from "../pages/Chapters/OneChapter";
 import Enrollment from "../pages/Enrollment/Enrollment";
@@ -165,7 +165,7 @@ const router = createBrowserRouter([
         element: <ContentDetails />,
       },
       {
-        path:"quiz/:quizId",
+        path: "quiz/:quizId",
         element: <Quiz />
       },
       {
