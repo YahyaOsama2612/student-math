@@ -14,7 +14,7 @@ import {
   extractList,
   fmtShort,
   validDate,
-} from "./Examreportsview";
+} from "./ExamReportsView";
 import ReportsTabsHeader from "./ReportsTabsHeader";
 
 /* ------------------------------------------------------------------ */

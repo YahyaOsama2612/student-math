@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReportsTabsHeader from "./ReportsTabsHeader";
 import QuizReports from "./QuizReports";
-import ExamReportsView from "./Examreportsview";
+import ExamReportsView from "./ExamReportsView";
 
 /**
  * Unified Reports container supporting all 3 reports with their own designs:
