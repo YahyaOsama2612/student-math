@@ -79,10 +79,10 @@ const mainFeatures = [
   {
     title: "Reports",
     description:
-      "Review your quiz reports, score analytics, and mistakes breakdown",
+      "Review your quiz, exam, and diagnostic performance reports and mistakes",
     MainIcon: FileText,
     buttons: [
-      { label: "Quiz Reports", icon: BarChart, path: "/user/reports/quizzes" },
+      { label: "Reports Hub", icon: BarChart, path: "/user/reports" },
     ],
   },
 ];

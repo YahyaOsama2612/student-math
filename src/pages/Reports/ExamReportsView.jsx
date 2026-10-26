@@ -14,6 +14,7 @@ import {
     Video,
     X,
 } from "lucide-react";
+import ReportsTabsHeader from "./ReportsTabsHeader";
 
 /* ------------------------------------------------------------------ */
 /* Config per report kind                                              */
@@ -381,6 +382,7 @@ const ExamReportsView = ({ kind = "exam" }) => {
     return (
         <main className="min-h-screen bg-[#F8FAFC] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-7xl">
+                <ReportsTabsHeader activeTab={isDiag ? "diagnostic" : "exams"} />
                 {/* Head */}
                 <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
                     <div>

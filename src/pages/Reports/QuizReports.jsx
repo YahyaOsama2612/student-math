@@ -3,43 +3,23 @@ import { useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loader from "@/components/Loading";
 import Errorpage from "@/components/Errorpage";
-import SecurePdfViewer, { SecureEmbed } from "../Attent/SecurePdfViewer";
+import { BookOpen, Download, RefreshCw, Search, X } from "lucide-react";
 import {
-  BookOpen,
-  Download,
-  FileText,
-  PlayCircle,
-  RefreshCw,
-  Search,
-  Video,
-  X,
-} from "lucide-react";
+  Kpi,
+  MistakeItem,
+  PdfModal,
+  PlButton,
+  TabBtn,
+  VideoModal,
+  extractList,
+  fmtShort,
+  validDate,
+} from "./Examreportsview";
+import ReportsTabsHeader from "./ReportsTabsHeader";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
-
-const cleanHtmlText = (text) =>
-  String(text || "")
-    .replace(/<\/?[^>]+(>|$)/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const isUrl = (value) =>
-  typeof value === "string" && /^https?:\/\//i.test(value);
-
-const validDate = (value) =>
-  Boolean(value) && !Number.isNaN(new Date(value).getTime());
-
-// "Oct 28"
-const fmtShort = (value) =>
-  validDate(value)
-    ? new Date(value).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
-    : "";
 
 const percentOf = (quiz) =>
   typeof quiz.score === "number" && quiz.totalScore
@@ -61,63 +41,11 @@ const isPassed = (quiz) =>
 const mistakesOf = (quiz) =>
   quiz.mistakesCount ?? (quiz.mistakes || []).length ?? 0;
 
-// Option order may be 1 / "1" / "A" → "A"
-const optionLetter = (order) => {
-  if (order === undefined || order === null || order === "") return "";
-  const n = Number(order);
-  return Number.isFinite(n) && n > 0 ? String.fromCharCode(64 + n) : String(order);
-};
-
 const NO_LESSON = "__no_lesson__";
 
 /* ------------------------------------------------------------------ */
 /* Small UI pieces (match student_home.html report styles)            */
 /* ------------------------------------------------------------------ */
-
-const TONE = {
-  slate: "text-slate-900",
-  green: "text-green-700",
-  amber: "text-amber-700",
-  red: "text-red-700",
-};
-
-const Kpi = ({ label, value, sub, tone = "slate" }) => (
-  <div className="min-w-0 rounded-[0.9rem] border border-gray-200 bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-      {label}
-    </p>
-    <p
-      className={`mt-0.5 truncate text-[1.6rem] font-extrabold leading-tight ${TONE[tone]}`}
-    >
-      {value}
-    </p>
-    <p className="text-xs text-slate-400">{sub}</p>
-  </div>
-);
-
-const PlButton = ({ primary, className = "", ...props }) => (
-  <button
-    type="button"
-    className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition disabled:opacity-60 ${primary
-        ? "border-[#7d0a0a] bg-[#7d0a0a] text-white hover:bg-[#5a0707]"
-        : "border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50"
-      } ${className}`}
-    {...props}
-  />
-);
-
-const TabBtn = ({ active, children, ...props }) => (
-  <button
-    type="button"
-    className={`whitespace-nowrap rounded-xl border px-4 py-2 text-[13px] font-bold transition ${active
-        ? "border-[#7d0a0a] bg-[#7d0a0a] text-white shadow-[0_6px_14px_-6px_rgba(125,10,10,0.5)]"
-        : "border-slate-200 bg-white text-slate-500 hover:text-[#7d0a0a]"
-      }`}
-    {...props}
-  >
-    {children}
-  </button>
-);
 
 // The quiz cell chip: 85% (pass/fail) · To do · Missed
 const QuizChip = ({ quiz, onClick }) => {
@@ -177,12 +105,8 @@ const QuizReports = () => {
   const [pdfModal, setPdfModal] = useState(null); // { url, title }
   const [videoModal, setVideoModal] = useState(null); // { url, title }
 
-  const quizzes = useMemo(() => {
-    if (Array.isArray(response?.data)) return response.data;
-    if (Array.isArray(response?.data?.data)) return response.data.data;
-    if (Array.isArray(response)) return response;
-    return [];
-  }, [response]);
+  // { success, data: { message, data: [] } } | { data: [] } | []
+  const quizzes = useMemo(() => extractList(response), [response]);
 
   /* ---------- Filtered quizzes ---------- */
 
@@ -351,6 +275,7 @@ const QuizReports = () => {
   return (
     <main className="min-h-screen bg-[#F8FAFC] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
+        <ReportsTabsHeader activeTab="quizzes" />
         {/* Head */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -624,81 +549,8 @@ const QuizReports = () => {
         />
       )}
 
-      {/* PDF modal (view only) */}
-      {pdfModal && (
-        <div
-          className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/70 p-3 backdrop-blur-sm sm:p-6"
-          onClick={() => setPdfModal(null)}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h3 className="flex items-center gap-2 truncate text-sm font-bold text-slate-800">
-                <FileText size={18} className="text-[#7d0a0a]" />
-                {pdfModal.title}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPdfModal(null)}
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="relative min-h-0 flex-1 bg-slate-900">
-              {pdfModal.url.includes("drive.google.com") ? (
-                <SecureEmbed src={pdfModal.url} title={pdfModal.title} />
-              ) : (
-                <SecurePdfViewer
-                  key={pdfModal.url}
-                  url={pdfModal.url}
-                  title={pdfModal.title}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Video modal */}
-      {videoModal && (
-        <div
-          className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/70 p-3 backdrop-blur-sm sm:p-6"
-          onClick={() => setVideoModal(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h3 className="flex items-center gap-2 truncate text-sm font-bold text-slate-800">
-                <Video size={18} className="text-[#7d0a0a]" />
-                {videoModal.title}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setVideoModal(null)}
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="bg-black p-3">
-              <video
-                controls
-                autoPlay
-                controlsList="nodownload"
-                onContextMenu={(e) => e.preventDefault()}
-                className="max-h-[70vh] w-full rounded-lg"
-                src={videoModal.url}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <PdfModal modal={pdfModal} onClose={() => setPdfModal(null)} />
+      <VideoModal modal={videoModal} onClose={() => setVideoModal(null)} />
     </main>
   );
 };
@@ -869,147 +721,6 @@ const QuizModal = ({ quiz, onClose, onOpenLesson, onOpenPdf, onOpenVideo }) => {
           )}
         </div>
       </div>
-    </div>
-  );
-};
-
-/* ------------------------------------------------------------------ */
-/* One mistake row: your answer → correct, options and solutions       */
-/* ------------------------------------------------------------------ */
-
-const MistakeItem = ({ mistake, index, onOpenPdf, onOpenVideo }) => {
-  const [open, setOpen] = useState(false);
-  const options = Array.isArray(mistake.options) ? mistake.options : [];
-  const answers = (Array.isArray(mistake.answers) ? mistake.answers : []).filter(
-    (a) => a.answerText || a.answerImage || a.answerPdf || isUrl(a.answerVideo),
-  );
-
-  const studentOpt = options.find(
-    (o) => o.id && o.id === mistake.studentSelectedOptionId,
-  );
-  // isCorrect is not sent — match by answer text (only when there is text).
-  const correctOpt = mistake.correctOption
-    ? options.find((o) => o.answer && o.answer === mistake.correctOption)
-    : null;
-
-  const yours =
-    (studentOpt && optionLetter(studentOpt.order)) ||
-    mistake.studentGridInAnswer ||
-    cleanHtmlText(mistake.studentOption) ||
-    "—";
-  const correct =
-    (correctOpt && optionLetter(correctOpt.order)) ||
-    cleanHtmlText(mistake.correctOption) ||
-    "?";
-
-  const questionText = cleanHtmlText(mistake.questionText);
-
-  return (
-    <div className="rounded-xl border border-slate-200 p-3">
-      <div className="mb-1 flex items-center justify-between gap-2 text-xs font-bold">
-        <span className="text-[#7d0a0a]">Question {index}</span>
-        <span className="flex items-center gap-1.5">
-          <span
-            title="Your answer"
-            className="inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-md border border-red-200 bg-red-50 px-1.5 text-xs font-extrabold text-red-700"
-          >
-            {yours}
-          </span>
-          →
-          <span
-            title="Correct answer"
-            className="inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-md border border-green-200 bg-green-50 px-1.5 text-xs font-extrabold text-green-700"
-          >
-            {correct}
-          </span>
-        </span>
-      </div>
-
-      {questionText && (
-        <p className="mb-1 text-sm text-slate-800">{questionText}</p>
-      )}
-      {mistake.lesson?.name && (
-        <p className="text-xs text-slate-500">Topic: {mistake.lesson.name}</p>
-      )}
-
-      {/* Options with text */}
-      {options.some((o) => cleanHtmlText(o.answer)) && (
-        <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {options.map((opt, i) => {
-            const picked = opt.id === mistake.studentSelectedOptionId;
-            const right = correctOpt && opt.id === correctOpt.id;
-            return (
-              <div
-                key={opt.id || i}
-                className={`rounded-lg border px-2.5 py-1.5 text-xs ${right
-                    ? "border-green-200 bg-green-50 font-semibold text-green-800"
-                    : picked
-                      ? "border-red-200 bg-red-50 font-semibold text-red-800"
-                      : "border-slate-200 bg-white text-slate-600"
-                  }`}
-              >
-                {optionLetter(opt.order) && (
-                  <b className="me-1">{optionLetter(opt.order)}.</b>
-                )}
-                {cleanHtmlText(opt.answer)}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {answers.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-[#7d0a0a] hover:underline"
-        >
-          <PlayCircle size={14} />
-          {open ? "Hide solution" : "Show solution"}
-        </button>
-      )}
-
-      {open && (
-        <div className="mt-2 space-y-2 rounded-lg bg-slate-50 p-3">
-          {answers.map((ans, i) => (
-            <div key={ans.id || i} className="space-y-2">
-              {ans.answerText && (
-                <p className="whitespace-pre-wrap text-xs text-slate-700">
-                  {cleanHtmlText(ans.answerText)}
-                </p>
-              )}
-              {ans.answerImage && (
-                <img
-                  src={ans.answerImage}
-                  alt={`Question ${index} solution`}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="max-h-72 rounded-lg border border-slate-200 bg-white object-contain"
-                />
-              )}
-              <div className="flex flex-wrap gap-2">
-                {isUrl(ans.answerVideo) && (
-                  <PlButton
-                    onClick={() =>
-                      onOpenVideo(ans.answerVideo, `Question ${index} — video solution`)
-                    }
-                  >
-                    <Video size={14} /> Video
-                  </PlButton>
-                )}
-                {ans.answerPdf && (
-                  <PlButton
-                    onClick={() =>
-                      onOpenPdf(ans.answerPdf, `Question ${index} — PDF solution`)
-                    }
-                  >
-                    <FileText size={14} /> PDF
-                  </PlButton>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };

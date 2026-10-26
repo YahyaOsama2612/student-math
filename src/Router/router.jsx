@@ -35,7 +35,10 @@ import Quiz from "../pages/Quizes/quiz";
 import PromoPage from "../pages/PromoCode/promo";
 import RemainingHomework from "../pages/Remaining/Remaining";
 import AvailabilityPlans from "../pages/AvailabilityPlans/AvailabilityPlans";
+import Reports from "../pages/Reports/Reports";
 import QuizReports from "../pages/Reports/QuizReports";
+import ExamReports from "../pages/Reports/ExamReports";
+import DiagnosticExamReports from "../pages/Reports/DiagnosticExamReports";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -179,11 +182,19 @@ const router = createBrowserRouter([
       },
       {
         path: "reports",
-        element: <QuizReports />,
+        element: <Reports />,
       },
       {
         path: "reports/quizzes",
         element: <QuizReports />,
+      },
+      {
+        path: "reports/exams",
+        element: <ExamReports />,
+      },
+      {
+        path: "reports/diagnostic-exam",
+        element: <DiagnosticExamReports />,
       }
     ],
   },
