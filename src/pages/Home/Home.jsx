@@ -9,6 +9,7 @@ import {
   FileText,
   TicketPercent,
   CalendarClock,
+  Book,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SiCoursera } from "react-icons/si";
@@ -70,35 +71,12 @@ const mainFeatures = [
     title: "Remaining Homework",
     description:
       "Check your remaining balance and manage your funds",
-    MainIcon: TicketPercent,
+    MainIcon: Book,
     buttons: [
-      { label: "Remaining Homework", icon: TicketPercent, path: "/user/remaining" },
+      { label: "Remaining Homework", icon: Book, path: "/user/remaining" },
     ],
   },
-  /* {
-    title: "Buy Courses",
-    description: "Learn new skills and improve your knowledge",
-    MainIcon: SiCoursera,
-    buttons: [
-      { label: "Buy Courses", icon: FileText, path: "/user/mycourses" },
-    ],
-  }, */
-  /*  {
-    title: "My Purchases",
-    description: "Review your past purchases and access your course materials",
-    MainIcon: SiCoursera,
-    buttons: [
-      { label: "My Purchases", icon: FileText, path: "/user/mypurchases" },
-    ],
-  }, */
-  /* {
-    title: "Purchases Manager",
-    description: "Review your pending purchases and manage your transactions",
-    MainIcon: SiCoursera,
-    buttons: [
-      { label: "PurchasesManager", icon: FileText, path: "/user/pendingpurchases" },
-    ],
-  } */
+
 ];
 
 // 2. Component مخصص للكروت الرئيسية لمنع التكرار
@@ -148,18 +126,9 @@ const Home = () => {
           <ActionCard key={index} {...feature} navigate={navigate} />
         ))}
 
-        {/*  <Card>
-          <h2 className="text-lg font-bold mb-4">Promo code</h2>
-          <p>See the latest promo codes and offers!</p>
-        </Card> */}
 
-        <Card className="flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <h2 className="text-lg font-bold">Upcoming Feature</h2>
-        </Card>
 
-        <Card className="flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 bg-gray-50/50">
-          <h2 className="text-lg font-bold">Quick Links</h2>
-        </Card>
+
       </div>
     </div>
   );

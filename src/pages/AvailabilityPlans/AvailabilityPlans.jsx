@@ -1,21 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Plus,
   RefreshCw,
-  ThumbsDown,
-  ThumbsUp,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import api from "../../api/api";
 import AvailabilityPlanCard, {
-  formatPlanStatus,
-  formatPlanTime,
+  PlanStepper,
+  SlotsGrid,
+  StatusPill,
+  formatShortDate,
 } from "./components/AvailabilityPlanCard";
 import AvailabilityPlanForm from "./components/AvailabilityPlanForm";
 
@@ -27,11 +26,88 @@ const getErrorMessage = (error) =>
   error?.message ||
   "Something went wrong. Please try again.";
 
-const formatSessionDate = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+// Header pill: "TIME SLOTS: …" based on the latest plan.
+const SLOTS_PILL = {
+  none: ["NOT SENT YET", "bg-slate-100 text-slate-600"],
+  pending_admin_review: ["WAITING FOR ADMIN APPROVAL", "bg-amber-100 text-amber-700"],
+  pending_student_response: ["APPROVED BY ADMIN", "bg-green-100 text-green-700"],
+  accepted: ["APPROVED BY ADMIN", "bg-green-100 text-green-700"],
+  rejected: ["CHANGES REQUESTED", "bg-red-100 text-red-600"],
 };
+
+// Plan tab filter key for each status.
+const filterKeyOf = (plan) =>
+  ({
+    pending_student_response: "awaiting",
+    rejected: "changes",
+    accepted: "active",
+  })[plan.status] || "waiting";
+
+const FILTERS = [
+  ["all", "All"],
+  ["awaiting", "Awaiting"],
+  ["changes", "Changes requested"],
+  ["active", "Active"],
+];
+
+// A plan shows in the "Plan" tab once the admin has proposed something.
+const hasProposal = (plan) =>
+  ["pending_student_response", "accepted", "rejected"].includes(plan.status) ||
+  Number(plan.proposedSessionsCount) > 0 ||
+  plan.proposedSessions?.length > 0 ||
+  Boolean(plan.proposedAt);
+
+const newestFirst = (a, b) =>
+  new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+
+/* ---------- Small shared pieces ---------- */
+
+const EmptyBox = ({ title, text, children }) => (
+  <section className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
+    <p className="mb-1 text-lg font-extrabold text-gray-900">{title}</p>
+    <p className="mx-auto mb-4 max-w-md text-sm text-slate-500">{text}</p>
+    {children}
+  </section>
+);
+
+const PrimaryButton = ({ className = "", ...props }) => (
+  <button
+    type="button"
+    className={`inline-flex items-center justify-center gap-2 rounded-xl bg-one px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-one/15 transition hover:brightness-110 disabled:opacity-60 ${className}`}
+    {...props}
+  />
+);
+
+const Chip = ({ active, label, count, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`whitespace-nowrap rounded-xl border px-4 py-2 text-[13px] font-bold transition ${active
+        ? "border-one bg-one text-white shadow-[0_6px_14px_-6px_rgba(125,10,10,0.5)]"
+        : "border-slate-200 bg-white text-slate-500 hover:text-one"
+      }`}
+  >
+    {label} <span className="opacity-70">{count}</span>
+  </button>
+);
+
+const LoadingBox = ({ text }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+    <RefreshCw size={22} className="mx-auto mb-3 animate-spin text-slate-300" />
+    {text}
+  </div>
+);
+
+const ErrorBox = ({ message, onRetry }) => (
+  <div className="rounded-2xl border border-red-100 bg-white p-8 text-center">
+    <p className="font-medium text-red-700">{message}</p>
+    <PrimaryButton onClick={onRetry} className="mx-auto mt-4">
+      Try again
+    </PrimaryButton>
+  </div>
+);
+
+/* ================================================================== */
 
 const AvailabilityPlans = () => {
   const { id } = useParams();
@@ -50,8 +126,11 @@ const AvailabilityPlans = () => {
   const [saving, setSaving] = useState(false);
   const [responding, setResponding] = useState(false);
   const [formPlan, setFormPlan] = useState(null);
-  const [feedback, setFeedback] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [tab, setTab] = useState(null); // "slots" | "plan"
+  const [filter, setFilter] = useState("all");
+
+  /* ---------------- Data ---------------- */
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -106,12 +185,13 @@ const AvailabilityPlans = () => {
     try {
       if (formPlan?.id) {
         await api.put(`${PLANS_URL}/${formPlan.id}`, body);
-        toast.success("Availability plan updated.");
+        toast.success("Time slots updated and sent to the admin.");
       } else {
         await api.post(PLANS_URL, body);
-        toast.success("Availability plan submitted.");
+        toast.success("Time slots sent to the admin for approval.");
       }
       setFormPlan(null);
+      setTab("slots");
       if (id) await fetchPlan();
       else await fetchPlans();
     } catch (error) {
@@ -121,266 +201,157 @@ const AvailabilityPlans = () => {
     }
   };
 
-  const respondToPlan = async (action) => {
+  // Returns true on success so the card can reset its "request changes" form.
+  const respondToPlan = async (planId, action, feedbackText = "") => {
     setResponding(true);
     try {
-      await api.post(`${PLANS_URL}/${id}/respond`, { action, feedback: feedback.trim() });
-      toast.success(action === "accept" ? "Plan accepted." : "Plan rejected.");
-      setFeedback("");
-      await fetchPlan();
+      await api.post(`${PLANS_URL}/${planId}/respond`, {
+        action,
+        feedback: feedbackText.trim(),
+      });
+      toast.success(
+        action === "accept"
+          ? "Plan approved — your sessions move to Upcoming."
+          : "Sent back to the admin with your reason.",
+      );
+      if (id) await fetchPlan();
       await fetchPlans();
+      return true;
     } catch (error) {
       toast.error(getErrorMessage(error));
+      return false;
     } finally {
       setResponding(false);
     }
   };
 
-  const canRespond =
-    plan &&
-    !/accepted|rejected/i.test(plan.status || "") &&
-    (plan.proposedAt ||
-      plan.proposedSessions?.length > 0 ||
-      /student.*response|response.*student|proposed/i.test(plan.status || ""));
+  /* ---------------- Derived (list view) ---------------- */
+
+  const sortedPlans = useMemo(() => [...plans].sort(newestFirst), [plans]);
+  const latestPlan = sortedPlans[0] || null;
+  const proposals = useMemo(
+    () => sortedPlans.filter(hasProposal),
+    [sortedPlans],
+  );
+  const awaitingCount = proposals.filter(
+    (p) => filterKeyOf(p) === "awaiting",
+  ).length;
+  const activeTab = tab || (awaitingCount ? "plan" : "slots");
+
+  const countFor = (key) =>
+    key === "all"
+      ? proposals.length
+      : proposals.filter((p) => filterKeyOf(p) === key).length;
+
+  const shownProposals = proposals
+    .filter((p) => filter === "all" || filterKeyOf(p) === filter)
+    // Awaiting first, then changes, then active.
+    .sort(
+      (a, b) =>
+        ["awaiting", "changes", "active", "waiting"].indexOf(filterKeyOf(a)) -
+        ["awaiting", "changes", "active", "waiting"].indexOf(filterKeyOf(b)),
+    );
+
+  const [pillText, pillClass] =
+    SLOTS_PILL[latestPlan?.status || "none"] || SLOTS_PILL.none;
+
+  /* ================================================================ */
+  /* Detail view                                                      */
+  /* ================================================================ */
 
   if (id) {
     return (
       <main className="min-h-[calc(100vh-5rem)] bg-[#F8FAFC] px-4 py-6 text-slate-900 sm:px-6 lg:px-10">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           <button
             type="button"
             onClick={() => navigate("/user/availability-plans")}
-            className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm hover:text-one"
+            className="mb-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm hover:text-one"
           >
             <ArrowLeft size={17} />
-            All plans
+            My schedule & study plan
           </button>
 
           {detailLoading ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-              Loading your plan...
-            </div>
+            <LoadingBox text="Loading your plan..." />
           ) : loadError ? (
-            <div className="rounded-3xl border border-red-100 bg-white p-8 text-center">
-              <p className="font-medium text-red-700">{loadError}</p>
-              <button
-                type="button"
-                onClick={fetchPlan}
-                className="mt-4 rounded-xl bg-one px-4 py-2 font-semibold text-white"
-              >
-                Try again
-              </button>
-            </div>
+            <ErrorBox message={loadError} onRetry={fetchPlan} />
           ) : plan ? (
-            <div className="space-y-5">
-              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-                <div className="flex flex-wrap items-start justify-between gap-4">
+            <>
+              <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <h1 className="break-words text-2xl font-extrabold tracking-tight text-gray-900">
+                    {plan.title}
+                  </h1>
+                  <p className="mt-0.5 text-sm text-gray-500">
+                    {[
+                      plan.createdAt && `Sent ${formatShortDate(plan.createdAt)}`,
+                      plan.proposedAt &&
+                      `Proposed ${formatShortDate(plan.proposedAt)}`,
+                      plan.respondedAt &&
+                      `Answered ${formatShortDate(plan.respondedAt)}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <StatusPill status={plan.status} />
+              </div>
+
+              <PlanStepper plan={plan} />
+
+              {hasProposal(plan) ? (
+                <AvailabilityPlanCard
+                  plan={plan}
+                  variant="plan"
+                  heading="Proposed study plan"
+                  sessionsLimit={0}
+                  onRespond={respondToPlan}
+                  responding={responding}
+                />
+              ) : (
+                <EmptyBox
+                  title="Waiting for the admin"
+                  text={`Your time slots were sent${plan.createdAt ? ` on ${formatShortDate(plan.createdAt)}` : ""
+                    }. Your study plan appears here once the admin reviews them.`}
+                />
+              )}
+
+              <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
-                      {formatPlanStatus(plan.status)}
-                    </span>
-                    <h1 className="mt-3 text-2xl font-bold sm:text-3xl">
-                      {plan.title}
-                    </h1>
-                    {plan.notes && (
-                      <p className="mt-3 whitespace-pre-wrap leading-7 text-slate-600">
-                        {plan.notes}
-                      </p>
-                    )}
+                    <h3 className="font-bold text-gray-900">
+                      My free times (availability)
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      {plan.slots?.length || 0}{" "}
+                      {plan.slots?.length === 1 ? "slot" : "slots"} sent to the
+                      admin
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setFormPlan(plan)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-one/20 px-4 py-2.5 font-semibold text-one hover:bg-one/5"
+                    className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-black"
                   >
-                    <CalendarClock size={17} />
-                    Edit plan
+                    <CalendarClock size={16} />
+                    Edit my times
                   </button>
                 </div>
-                <div className="mt-6 flex flex-wrap gap-5 border-t border-slate-100 pt-5 text-sm text-slate-500">
-                  <span>Created {plan.createdAt ? new Date(plan.createdAt).toLocaleDateString() : "—"}</span>
-                  {plan.proposedAt && (
-                    <span>
-                      Proposed {new Date(plan.proposedAt).toLocaleDateString()}
-                    </span>
-                  )}
-                  {plan.respondedAt && (
-                    <span>
-                      Responded {new Date(plan.respondedAt).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-                <h2 className="text-lg font-bold">Your available times</h2>
-                {plan.slots?.length ? (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {plan.slots.map((slot) => (
-                      <div
-                        key={slot.id || `${slot.dayOfWeek}-${slot.timeFrom}`}
-                        className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4"
-                      >
-                        <span className="rounded-xl bg-one/10 p-2.5 text-one">
-                          <Clock3 size={19} />
-                        </span>
-                        <div>
-                          <p className="font-semibold text-slate-800">
-                            {slot.dayOfWeek}
-                          </p>
-                          <p className="text-sm text-slate-500">
-                            {formatPlanTime(slot.timeFrom)} –{" "}
-                            {formatPlanTime(slot.timeTo)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                {plan.notes && (
+                  <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    <b className="me-1 text-slate-800">Your note:</b>
+                    {plan.notes}
                   </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-500">No times added.</p>
                 )}
+                <SlotsGrid slots={plan.slots || []} />
               </section>
-
-              {plan.adminNotes && (
-                <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
-                  <h2 className="font-bold text-amber-900">Admin notes</h2>
-                  <p className="mt-2 whitespace-pre-wrap leading-6 text-amber-800">
-                    {plan.adminNotes}
-                  </p>
-                </section>
-              )}
-
-              {plan.studentFeedback && (
-                <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6">
-                  <h2 className="font-bold text-blue-900">Your feedback</h2>
-                  <p className="mt-2 whitespace-pre-wrap leading-6 text-blue-800">
-                    {plan.studentFeedback}
-                  </p>
-                </section>
-              )}
-
-              {plan.proposedSessions?.length > 0 && (
-                <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-                  <h2 className="text-lg font-bold">Proposed sessions</h2>
-                  <div className="mt-4 space-y-3">
-                    {plan.proposedSessions.map((session, index) => (
-                      <div
-                        key={
-                          session.planSessionId ||
-                          session.sessionId ||
-                          session.id ||
-                          index
-                        }
-                        className="rounded-2xl bg-slate-50 p-4"
-                      >
-                        <p className="font-semibold text-slate-800">
-                          {session.sessionName ||
-                            session.title ||
-                            session.subject?.name ||
-                            session.course?.title ||
-                            `Session ${index + 1}`}
-                        </p>
-                        <div className="mt-2 space-y-1 text-sm text-slate-500">
-                          {(session.sessionDate ||
-                            session.startDate ||
-                            session.endDate) && (
-                              <p>
-                                {session.sessionDate
-                                  ? formatSessionDate(session.sessionDate)
-                                  : [
-                                    formatSessionDate(session.startDate),
-                                    formatSessionDate(session.endDate),
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" – ")}
-                              </p>
-                            )}
-                          {(session.timeFrom || session.timeTo) && (
-                            <p>
-                              {[
-                                session.timeFrom && formatPlanTime(session.timeFrom),
-                                session.timeTo && formatPlanTime(session.timeTo),
-                              ]
-                                .filter(Boolean)
-                                .join(" – ")}
-                            </p>
-                          )}
-                          {session.scheduleType && (
-                            <p>
-                              Schedule:{" "}
-                              {session.scheduleType === "once"
-                                ? "One-time"
-                                : formatPlanStatus(session.scheduleType)}
-                            </p>
-                          )}
-                          {session.sessionRelationalType && (
-                            <p>Type: {session.sessionRelationalType}</p>
-                          )}
-                          {session.teacherName && (
-                            <p>Teacher: {session.teacherName}</p>
-                          )}
-                          {session.planSessionNotes && (
-                            <p className="whitespace-pre-wrap">
-                              Notes: {session.planSessionNotes}
-                            </p>
-                          )}
-                          {session.sessionLink && (
-                            <a
-                              href={session.sessionLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-block font-medium text-one hover:underline"
-                            >
-                              Open session link
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {canRespond && (
-                <section className="rounded-3xl border border-one/15 bg-white p-6 shadow-sm sm:p-8">
-                  <h2 className="text-lg font-bold">Respond to this plan</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Accept or reject the proposed schedule. You can include an optional note.
-                  </p>
-                  <textarea
-                    value={feedback}
-                    onChange={(event) => setFeedback(event.target.value)}
-                    rows={3}
-                    placeholder="Add feedback (optional)"
-                    className="mt-4 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-one focus:ring-2 focus:ring-one/10"
-                  />
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <button
-                      type="button"
-                      disabled={responding}
-                      onClick={() => respondToPlan("accept")}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                    >
-                      <ThumbsUp size={17} />
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      disabled={responding}
-                      onClick={() => respondToPlan("reject")}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 px-5 py-3 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                    >
-                      <ThumbsDown size={17} />
-                      Reject
-                    </button>
-                  </div>
-                </section>
-              )}
-            </div>
+            </>
           ) : (
-            <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-              This availability plan could not be found.
-            </div>
+            <EmptyBox
+              title="Plan not found"
+              text="This availability plan could not be found."
+            />
           )}
         </div>
 
@@ -396,116 +367,208 @@ const AvailabilityPlans = () => {
     );
   }
 
+  /* ================================================================ */
+  /* List view: stepper + "Time slots | Plan" tabs                    */
+  /* ================================================================ */
+
+  const TabButton = ({ value, label, badge }) => (
+    <button
+      type="button"
+      onClick={() => setTab(value)}
+      className={`-mb-px inline-flex items-center gap-2 border-b-[3px] px-4 py-3 text-sm font-extrabold transition-colors ${activeTab === value
+          ? "border-one text-one"
+          : "border-transparent text-slate-500 hover:text-one"
+        }`}
+    >
+      {label}
+      {badge > 0 && (
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[11px] text-white">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+
   return (
     <main className="min-h-[calc(100vh-5rem)] bg-[#F8FAFC] px-4 py-6 text-slate-900 sm:px-6 lg:px-10">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        {/* Header */}
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-one">
-              <CalendarClock size={18} />
-              Student schedule
-            </div>
-            <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-              Availability <span className="text-one">plans</span>
+            <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">
+              My Schedule & Study Plan
             </h1>
-            <p className="mt-2 max-w-xl text-slate-500">
-              Tell us when you are available, then track responses and proposed sessions.
+            <p className="mt-0.5 text-sm text-gray-500">
+              Share your free times with the admin, then review and approve the
+              plan built from them.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-extrabold tracking-wide ${pillClass}`}
+            >
+              TIME SLOTS: {pillText}
+            </span>
             <button
               type="button"
               onClick={fetchPlans}
               disabled={loading}
-              aria-label="Refresh availability plans"
-              className="rounded-xl border border-slate-200 bg-white p-3 text-slate-600 shadow-sm hover:text-one disabled:opacity-60"
+              aria-label="Refresh"
+              className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm hover:text-one disabled:opacity-60"
             >
-              <RefreshCw size={19} className={loading ? "animate-spin" : ""} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormPlan({})}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-one px-5 py-3 font-semibold text-white shadow-lg shadow-one/15 transition hover:bg-one/90"
-            >
-              <Plus size={19} />
-              Create plan
+              <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
-        </header>
+        </div>
+
+        <PlanStepper plan={latestPlan} />
+
+        {/* Tabs */}
+        <div className="mb-5 flex gap-2 border-b border-slate-200">
+          <TabButton value="slots" label="Time slots" />
+          <TabButton value="plan" label="Plan" badge={awaitingCount} />
+        </div>
 
         {loading ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-            Loading your availability plans...
-          </div>
+          <LoadingBox text="Loading your schedule..." />
         ) : loadError ? (
-          <div className="rounded-3xl border border-red-100 bg-white p-8 text-center">
-            <p className="font-medium text-red-700">{loadError}</p>
-            <button
-              type="button"
-              onClick={fetchPlans}
-              className="mt-4 rounded-xl bg-one px-4 py-2 font-semibold text-white"
-            >
-              Try again
-            </button>
-          </div>
-        ) : plans.length ? (
+          <ErrorBox message={loadError} onRetry={fetchPlans} />
+        ) : activeTab === "slots" ? (
+          /* ---------------- Time slots tab ---------------- */
           <>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {plans.map((item) => (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-gray-900">
+                  My free times (availability)
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Each set of times you send gets its own study plan from the
+                  admin.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormPlan({})}
+                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-black"
+              >
+                <Plus size={17} />
+                Add my free times
+              </button>
+            </div>
+
+            {sortedPlans.length ? (
+              sortedPlans.map((item) => (
                 <AvailabilityPlanCard
                   key={item.id}
                   plan={item}
+                  variant="slots"
                   onOpen={openPlan}
                   onEdit={setFormPlan}
                 />
-              ))}
-            </div>
-            <div className="mt-6 flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 sm:flex-row">
-              <p className="text-sm text-slate-500">
-                Page {pagination.page || page} of {pagination.totalPages || 1}
-                {" · "}
-                {pagination.total || plans.length} plans
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={page <= 1 || loading}
-                  onClick={() => setPage((current) => current - 1)}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronLeft size={17} />
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={page >= (pagination.totalPages || 1) || loading}
-                  onClick={() => setPage((current) => current + 1)}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next
-                  <ChevronRight size={17} />
-                </button>
-              </div>
-            </div>
+              ))
+            ) : (
+              <EmptyBox
+                title="No time slots yet"
+                text="Pick your free times and send them to the admin. Your study plan is built from these slots."
+              >
+                <PrimaryButton onClick={() => setFormPlan({})} className="mx-auto">
+                  <Plus size={17} />
+                  Fill my time slots
+                </PrimaryButton>
+              </EmptyBox>
+            )}
           </>
         ) : (
-          <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-one/10 text-one">
-              <CalendarClock size={27} />
-            </div>
-            <h2 className="mt-4 text-xl font-bold">No availability plans yet</h2>
-            <p className="mx-auto mt-2 max-w-md text-slate-500">
-              Create a plan with the days and hours that work for you.
+          /* ---------------- Plan tab ---------------- */
+          <>
+            {!sortedPlans.length ? (
+              <EmptyBox
+                title="No plan yet"
+                text="Send your time slots to the admin first. Your plan is built from them once they are reviewed."
+              >
+                <PrimaryButton onClick={() => setTab("slots")} className="mx-auto">
+                  Fill my time slots
+                </PrimaryButton>
+              </EmptyBox>
+            ) : !proposals.length ? (
+              <EmptyBox
+                title="Waiting for the admin"
+                text={`Your time slots were sent${latestPlan?.createdAt
+                    ? ` on ${formatShortDate(latestPlan.createdAt)}`
+                    : ""
+                  }. Your plan appears here once the admin reviews them.`}
+              />
+            ) : (
+              <>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-gray-900">Study plans</h3>
+                    <p className="text-xs text-gray-400">
+                      Approve each plan, or request changes with a reason.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {FILTERS.map(([key, label]) => (
+                      <Chip
+                        key={key}
+                        active={filter === key}
+                        label={label}
+                        count={countFor(key)}
+                        onClick={() => setFilter(key)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {shownProposals.length ? (
+                  shownProposals.map((item) => (
+                    <AvailabilityPlanCard
+                      key={item.id}
+                      plan={item}
+                      variant="plan"
+                      onOpen={openPlan}
+                      onRespond={respondToPlan}
+                      responding={responding}
+                    />
+                  ))
+                ) : (
+                  <p className="py-10 text-center text-sm text-slate-400">
+                    No plans with this status.
+                  </p>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* Pagination */}
+        {!loading && !loadError && (pagination.totalPages || 1) > 1 && (
+          <div className="mt-2 flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 sm:flex-row">
+            <p className="text-sm text-slate-500">
+              Page {pagination.page || page} of {pagination.totalPages || 1} ·{" "}
+              {pagination.total || plans.length} plans
             </p>
-            <button
-              type="button"
-              onClick={() => setFormPlan({})}
-              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-one px-5 py-3 font-semibold text-white hover:bg-one/90"
-            >
-              <Plus size={18} />
-              Create your first plan
-            </button>
-          </section>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((current) => current - 1)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={17} />
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={page >= (pagination.totalPages || 1) || loading}
+                onClick={() => setPage((current) => current + 1)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+                <ChevronRight size={17} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

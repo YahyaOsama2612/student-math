@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { Star, X, Send, AlertCircle, CheckCircle } from "lucide-react";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
-import usePut from "@/hooks/usePut";
 import Loading from "../../components/Loading";
 
 const SessionRatingModal = ({
@@ -24,7 +23,7 @@ const SessionRatingModal = ({
     `/api/user/session-ratings/${sessionId}/form`,
   );
   const { postData } = usePost();
-  const { putData } = usePut();
+
 
   // Initialize ratings with questions from API
   useEffect(() => {
@@ -112,13 +111,8 @@ const SessionRatingModal = ({
 
       console.log("Submitting payload:", payload);
 
-      // Check if updating existing rating or creating new one
-      const existingRatingId = formData?.data?.data?.existingRating?.id;
+      await postData(payload, `/api/user/session-ratings/${sessionId}`);
 
-      if (existingRatingId) {
-        // Create new rating
-        await postData(payload, `/api/user/session-ratings/${sessionId}`);
-      }
 
       setSubmitStatus("success");
       setTimeout(() => {
@@ -267,11 +261,10 @@ const SessionRatingModal = ({
                                     : "#cbd5e1",
                                 cursor: "pointer",
                               }}
-                              className={`${
-                                star <= (currentRating?.rating || 0)
-                                  ? ""
-                                  : "hover:text-opacity-50"
-                              }`}
+                              className={`${star <= (currentRating?.rating || 0)
+                                ? ""
+                                : "hover:text-opacity-50"
+                                }`}
                               onMouseEnter={(e) => {
                                 if (star > (currentRating?.rating || 0)) {
                                   e.currentTarget.style.color = "#9ca3af";

@@ -10,7 +10,6 @@ import {
   XCircle,
   ArrowRight,
   MinusCircle,
-  ExternalLink,
   Eye,
   X,
   Star,
@@ -23,6 +22,7 @@ import Loading from "../../components/Loading";
 import Errorpage from "../../components/Errorpage";
 import SessionRatingModal from "./SessionRatingModal";
 import SessionRatingsHistory from "./SessionRatingsHistory";
+import SecurePdfViewer, { SecureEmbed } from "./SecurePdfViewer";
 
 // Import AOS for animations
 import AOS from "aos";
@@ -37,14 +37,13 @@ const History = () => {
   );
 
   // State for modals
+  // type: "pdf" -> rendered with pdf.js (no toolbar) | "embed" -> sandboxed iframe
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     url: "",
-    rawUrl: "",
     title: "",
-    loading: false,
+    type: "pdf",
   });
-  const blobUrlRef = useRef(null);
   const [ratingModal, setRatingModal] = useState({
     isOpen: false,
     sessionId: null,
@@ -70,77 +69,42 @@ const History = () => {
   const isBackendPdf = (url) =>
     /\.pdf(\?|#|$)/i.test(url) || url.includes("bcknd.mathshouse.net/uploads");
 
-  const revokeBlobUrl = () => {
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-      blobUrlRef.current = null;
-    }
-  };
-
-  const handlePreview = async (rawUrl, title) => {
-    revokeBlobUrl();
-
-    if (!isBackendPdf(rawUrl)) {
-      setPreviewModal({
-        isOpen: true,
-        url: getEmbedUrl(rawUrl),
-        rawUrl,
-        title,
-        loading: false,
-      });
-      return;
-    }
-
-    // Open the modal immediately with a loader
-    setPreviewModal({ isOpen: true, url: "", rawUrl, title, loading: true });
-
-    try {
-      // Fetch the file and re-wrap it as application/pdf so the browser
-      // renders it inline instead of downloading it (ignores Content-Disposition)
-      const res = await fetch(rawUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buffer = await res.arrayBuffer();
-      const blob = new Blob([buffer], { type: "application/pdf" });
-      const blobUrl = URL.createObjectURL(blob);
-      blobUrlRef.current = blobUrl;
-
-      setPreviewModal((prev) =>
-        prev.isOpen && prev.rawUrl === rawUrl
-          ? { ...prev, url: `${blobUrl}#toolbar=1&view=FitH`, loading: false }
-          : prev,
-      );
-      // If the modal was closed/changed meanwhile, release the blob
-      if (blobUrlRef.current !== blobUrl) URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      // Fallback (e.g. CORS blocked): Google Docs viewer
-      console.warn("PDF fetch failed, using Google viewer:", err);
-      setPreviewModal((prev) =>
-        prev.isOpen && prev.rawUrl === rawUrl
-          ? {
-            ...prev,
-            url: `https://docs.google.com/viewer?url=${encodeURIComponent(
-              rawUrl,
-            )}&embedded=true`,
-            loading: false,
-          }
-          : prev,
-      );
-    }
-  };
-
-  const closePreview = () => {
-    revokeBlobUrl();
+  const handlePreview = (rawUrl, title) => {
     setPreviewModal({
-      isOpen: false,
-      url: "",
-      rawUrl: "",
-      title: "",
-      loading: false,
+      isOpen: true,
+      url: isBackendPdf(rawUrl) ? rawUrl : getEmbedUrl(rawUrl),
+      title,
+      type: isBackendPdf(rawUrl) ? "pdf" : "embed",
     });
   };
 
-  // Release any blob URL on unmount
-  useEffect(() => () => revokeBlobUrl(), []);
+  const closePreview = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    setPreviewModal({ isOpen: false, url: "", title: "", type: "pdf" });
+  };
+
+  // While the preview is open: block Save / Print shortcuts and hide the page on print
+  useEffect(() => {
+    if (!previewModal.isOpen) return;
+
+    const onKeyDown = (e) => {
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(key)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+
+    const style = document.createElement("style");
+    style.innerHTML = "@media print { body { display: none !important; } }";
+    document.head.appendChild(style);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      style.remove();
+    };
+  }, [previewModal.isOpen]);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -252,8 +216,8 @@ const History = () => {
         onClick={() => available && handlePreview(url, title)}
         title={available ? label : `${label} not available yet`}
         className={`flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-bold transition-all ${available
-            ? "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
-            : "bg-slate-50 text-slate-300 cursor-not-allowed"
+          ? "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
+          : "bg-slate-50 text-slate-300 cursor-not-allowed"
           }`}
       >
         <Icon size={18} style={available ? { color: BRAND } : {}} />
@@ -517,11 +481,12 @@ const History = () => {
           )
         )}
 
-        {/* --- Preview Modal (Material / Session PDF / Teacher PDF) --- */}
+        {/* --- Preview Modal (view only: no new tab, no download) --- */}
         {previewModal.isOpen && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
             onClick={closePreview}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <div
               ref={modalRef}
@@ -533,19 +498,6 @@ const History = () => {
                   {previewModal.title}
                 </h3>
                 <div className="flex items-center gap-2">
-                  <a
-                    href={previewModal.rawUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                    style={{
-                      color: BRAND,
-                      backgroundColor: "rgba(125, 10, 10, 0.1)",
-                    }}
-                  >
-                    <ExternalLink size={14} />
-                    Open
-                  </a>
                   <button
                     onClick={toggleFullScreen}
                     className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
@@ -560,20 +512,19 @@ const History = () => {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 bg-gray-900 relative">
-                {previewModal.loading ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/80">
-                    <RefreshCcw size={28} className="animate-spin" />
-                    <span className="text-sm font-medium">Loading PDF…</span>
-                  </div>
+              <div className="flex-1 bg-gray-900 relative min-h-0">
+                {previewModal.type === "pdf" ? (
+                  <SecurePdfViewer
+                    key={previewModal.url}
+                    url={previewModal.url}
+                    title={previewModal.title}
+                  />
                 ) : (
-                  <iframe
+                  <SecureEmbed
                     key={previewModal.url}
                     src={previewModal.url}
                     title={previewModal.title}
-                    className="w-full h-full border-0"
-                    allowFullScreen
-                  ></iframe>
+                  />
                 )}
               </div>
             </div>

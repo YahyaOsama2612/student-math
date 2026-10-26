@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
+import api from "@/api/api";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import Loader from "@/components/Loading";
@@ -44,6 +45,12 @@ const Review = () => {
     rawExamResult?.examResult ??
     rawExamResult ??
     null;
+  // recommendedLessonsToStudy is a sibling of examResult inside `data`.
+  const recommendedLessonsFromSubmit =
+    rawExamResult?.data?.recommendedLessonsToStudy ??
+    rawExamResult?.recommendedLessonsToStudy ??
+    examResult?.recommendedLessonsToStudy ??
+    [];
   // examId is not part of the submit response; it comes from the route or state.
   const examId = examIdParam || location.state?.examId || null;
 
@@ -60,6 +67,7 @@ const Review = () => {
       <ExamResultReview
         result={{ ...examResult, attemptId: examResult.attemptId || attemptId }}
         examId={examId}
+        recommendedLessonsToStudy={recommendedLessonsFromSubmit}
       />
     );
   }
@@ -439,11 +447,10 @@ const Review = () => {
                           </td>
                           <td className="px-4 py-3">
                             <span
-                              className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                q.isCorrect
+                              className={`px-3 py-1 rounded-full text-xs font-bold ${q.isCorrect
                                   ? "bg-green-100 text-green-700"
                                   : "bg-red-100 text-red-700"
-                              }`}
+                                }`}
                             >
                               {q.isCorrect ? "Correct" : "Wrong Answer"}
                             </span>
@@ -544,22 +551,20 @@ const Review = () => {
           <div
             key={q.questionId}
             id={`question-${index + 1}`}
-            className={`p-5 rounded-xl border shadow-sm ${
-              q.isCorrect
+            className={`p-5 rounded-xl border shadow-sm ${q.isCorrect
                 ? "bg-green-50 border-green-200"
                 : "bg-red-50 border-red-200"
-            }`}
+              }`}
           >
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-bold text-lg text-slate-800">
                 Question {index + 1}
               </h3>
               <span
-                className={`px-3 py-1 text-sm rounded-full font-medium ${
-                  q.isCorrect
+                className={`px-3 py-1 text-sm rounded-full font-medium ${q.isCorrect
                     ? "bg-green-200 text-green-800"
                     : "bg-red-200 text-red-800"
-                }`}
+                  }`}
               >
                 {q.isCorrect ? "Correct" : "Wrong Answer"}
               </span>
@@ -595,8 +600,8 @@ const Review = () => {
                       handleNavigateToBuy(
                         q.questionId,
                         q.recommendationToRecap?.lessonName ||
-                          q.recommendationToRecap?.chapterName ||
-                          "Diagnostic review",
+                        q.recommendationToRecap?.chapterName ||
+                        "Diagnostic review",
                       )
                     }
                     className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm rounded-lg hover:from-amber-600 hover:to-orange-600 transition shadow-sm"
@@ -640,48 +645,81 @@ const formatReportDate = (value) =>
     year: "numeric",
   });
 
+const formatMoney = (value) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "EGP",
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+
 // Recommendation recap — mirrors DiagnosticReviewDashboard's Recommendations
-// section (selectable cards, select all / clear all, sticky checkout bar),
-// adapted to the lesson-only shape the exam answers endpoint returns.
+// (grouped by chapter, per-lesson price, select all / clear all, sticky
+// checkout bar with the selected total).
 const ExamRecapRecommendations = ({
-  lessons,
+  recommendations,
+  cart,
   loading,
-  selectedIds,
-  onToggle,
-  onSelectAll,
+  error,
+  onAdd,
+  onRemove,
   onClearAll,
   onCheckout,
 }) => {
+  const total = cart.reduce((sum, item) => sum + item.price, 0);
+  const isSelected = (id) => cart.some((item) => item.id === id);
+
+  const groups = [
+    ...recommendations
+      .reduce((map, item) => {
+        const key = item.chapterId || item.chapter;
+        const group = map.get(key) || {
+          id: key,
+          chapter: item.chapter,
+          course: item.course,
+          items: [],
+        };
+        group.items.push(item);
+        map.set(key, group);
+        return map;
+      }, new Map())
+      .values(),
+  ];
+
   const allSelected =
-    lessons.length > 0 &&
-    lessons.every((lesson) => selectedIds.includes(lesson.lessonId));
+    recommendations.length > 0 &&
+    recommendations.every((item) => isSelected(item.id));
+
+  const selectAll = () =>
+    recommendations
+      .filter((item) => !isSelected(item.id))
+      .forEach(onAdd);
 
   return (
-    <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-8">
-      <div className="mb-6 flex flex-col items-start justify-between gap-4 border-b border-slate-100 pb-6 md:flex-row md:items-center">
+    <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-8">
+      <div className="mb-8 flex flex-col items-start justify-between gap-4 border-b border-slate-100 pb-6 md:flex-row md:items-center">
         <div className="flex items-center gap-4">
           <div
             className="rounded-2xl border border-red-100 bg-red-50 p-3"
             style={{ color: BRAND }}
           >
-            <Zap size={26} />
+            <Zap size={28} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">
-              Recommendation Recap
+            <h2 className="text-2xl font-bold text-slate-900">
+              Recommended Lessons
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Lessons worth reviewing based on this attempt.
+              Select lessons to purchase and improve your skills.
             </p>
           </div>
         </div>
-        {lessons.length > 0 && (
+        {groups.length > 0 && (
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={onSelectAll}
+              onClick={selectAll}
               disabled={allSelected}
-              className="rounded-lg px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: BRAND }}
             >
               Select All
@@ -689,8 +727,8 @@ const ExamRecapRecommendations = ({
             <button
               type="button"
               onClick={onClearAll}
-              disabled={!selectedIds.length}
-              className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!cart.length}
+              className="rounded-lg bg-slate-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Clear All
             </button>
@@ -698,39 +736,89 @@ const ExamRecapRecommendations = ({
         )}
       </div>
 
-      {loading && !lessons.length ? (
-        <p className="rounded-xl bg-slate-50 p-6 text-center text-sm font-medium text-slate-600">
-          Loading recommendations...
-        </p>
-      ) : lessons.length ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {lessons.map((lesson, idx) => {
-            const selected = selectedIds.includes(lesson.lessonId);
+      {groups.length ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {groups.map((group) => {
+            const groupSelected = group.items.every((item) =>
+              isSelected(item.id),
+            );
+            const groupTotal = group.items.reduce(
+              (sum, item) => sum + item.price,
+              0,
+            );
             return (
-              <label
-                key={lesson.lessonId || idx}
-                className={`flex cursor-pointer items-start gap-3 rounded-2xl border-2 p-4 transition ${
-                  selected
+              <div
+                key={group.id}
+                className={`rounded-2xl border-2 p-5 transition ${groupSelected
                     ? "border-[#8B1A1A] bg-red-50/50 shadow-sm"
                     : "border-transparent bg-slate-50 hover:border-slate-200"
-                }`}
+                  }`}
               >
-                <input
-                  type="checkbox"
-                  checked={selected}
-                  onChange={() => onToggle(lesson)}
-                  className="mt-1 h-5 w-5 cursor-pointer accent-[#8B1A1A]"
-                  aria-label={`Select ${lesson.lessonName}`}
-                />
-                <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Lesson {idx + 1}
-                  </p>
-                  <p className="mt-0.5 font-bold leading-tight text-slate-900">
-                    {lesson.lessonName || "—"}
-                  </p>
+                <div className="flex items-start gap-4">
+                  <input
+                    type="checkbox"
+                    checked={groupSelected}
+                    onChange={() =>
+                      group.items.forEach((item) => {
+                        const selected = isSelected(item.id);
+                        if (groupSelected && selected) onRemove(item.id);
+                        if (!groupSelected && !selected) onAdd(item);
+                      })
+                    }
+                    aria-label={`Select all lessons in ${group.chapter}`}
+                    className="mt-1 h-5 w-5 cursor-pointer accent-[#8B1A1A]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    {group.course && (
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        {group.course}
+                      </p>
+                    )}
+                    <h3 className="font-bold leading-tight text-slate-900">
+                      {group.chapter}
+                    </h3>
+                    <div className="mt-3 space-y-2">
+                      {group.items.map((item) => {
+                        const selected = isSelected(item.id);
+                        return (
+                          <label
+                            key={item.id}
+                            className="flex items-center gap-2 text-sm text-slate-600"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() =>
+                                selected ? onRemove(item.id) : onAdd(item)
+                              }
+                              aria-label={`Select ${item.name}`}
+                              className="h-4 w-4 cursor-pointer accent-[#8B1A1A]"
+                            />
+                            <span>{item.name}</span>
+                            <span
+                              className="ml-auto shrink-0 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-bold"
+                              style={{ color: BRAND }}
+                            >
+                              {loading && !item.priceLoaded
+                                ? "..."
+                                : formatMoney(item.price)}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </label>
+                <div className="mt-4 flex items-center gap-4 border-t border-slate-200/70 pt-4">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-red-100/60 px-3 py-1.5 text-xs font-bold text-red-600">
+                    <Clock3 size={14} /> Min: 15 days
+                  </span>
+                  <span className="text-sm font-bold text-slate-800">
+                    <span className="font-normal text-slate-500">Total:</span>{" "}
+                    {formatMoney(groupTotal)}
+                  </span>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -741,25 +829,33 @@ const ExamRecapRecommendations = ({
         </p>
       )}
 
-      {selectedIds.length > 0 && (
+      {error && (
+        <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+          {error}
+        </p>
+      )}
+
+      {cart.length > 0 && (
         <div
           className="sticky bottom-0 z-20 mt-8 flex flex-col items-start justify-between gap-4 rounded-b-2xl border-t-4 bg-white p-4 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)] sm:flex-row sm:items-center"
           style={{ borderTopColor: BRAND }}
         >
           <div>
-            <p className="text-sm font-medium text-slate-500">Selected</p>
+            <p className="text-sm font-medium text-slate-500">Selected Value</p>
             <p className="text-2xl font-bold text-slate-900">
-              {selectedIds.length}{" "}
-              {selectedIds.length === 1 ? "lesson" : "lessons"}
+              {formatMoney(total)}
+            </p>
+            <p className="text-xs text-slate-500">
+              {cart.length} {cart.length === 1 ? "lesson" : "lessons"} selected
             </p>
           </div>
           <button
             type="button"
             onClick={onCheckout}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3 font-bold text-white shadow-lg transition hover:-translate-y-0.5 sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3 font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:opacity-90 sm:w-auto"
             style={{ backgroundColor: BRAND }}
           >
-            Proceed to Enrollment <ArrowRight size={20} />
+            Proceed to Checkout <ArrowRight size={20} />
           </button>
         </div>
       )}
@@ -843,9 +939,8 @@ const ExamReportPreview = ({
         <div className="flex-1 overflow-y-auto bg-slate-200/70 p-4 sm:p-8">
           <article
             data-report-document={report}
-            className={`mx-auto w-full max-w-[210mm] bg-white shadow-xl ${
-              isPdf ? "h-[297mm] overflow-hidden" : "min-h-[297mm]"
-            }`}
+            className={`mx-auto w-full max-w-[210mm] bg-white shadow-xl ${isPdf ? "h-[297mm] overflow-hidden" : "min-h-[297mm]"
+              }`}
           >
             <header
               className="flex items-end justify-between border-b-4 px-8 pb-6 pt-10 sm:px-12"
@@ -976,11 +1071,10 @@ const ExamReportPreview = ({
                               Question {question.number}
                             </span>
                             <span
-                              className={`rounded-full px-3 py-1 text-xs font-bold ${
-                                question.isCorrect
+                              className={`rounded-full px-3 py-1 text-xs font-bold ${question.isCorrect
                                   ? "bg-emerald-100 text-emerald-700"
                                   : "bg-red-100 text-red-700"
-                              }`}
+                                }`}
                             >
                               {question.isCorrect ? "Correct" : "Wrong"}
                             </span>
@@ -1000,11 +1094,10 @@ const ExamReportPreview = ({
                           )}
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             <div
-                              className={`rounded-lg p-3 ${
-                                question.isCorrect
+                              className={`rounded-lg p-3 ${question.isCorrect
                                   ? "bg-emerald-50"
                                   : "bg-red-50"
-                              }`}
+                                }`}
                             >
                               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                 Student Answer
@@ -1094,7 +1187,7 @@ const ExamReportPreview = ({
   );
 };
 
-const ExamResultReview = ({ result, examId }) => {
+const ExamResultReview = ({ result, examId, recommendedLessonsToStudy = [] }) => {
   const {
     attemptId,
     score = 0,
@@ -1117,8 +1210,11 @@ const ExamResultReview = ({ result, examId }) => {
   // Which report preview ("pdf" | "report") is open, if any.
   const [activeReport, setActiveReport] = useState(null);
   const [exporting, setExporting] = useState(false);
-  // Selected lesson ids in the recommendation recap.
-  const [selectedLessonIds, setSelectedLessonIds] = useState([]);
+  // Recommendation cart (priced lessons) + chapter details used for prices.
+  const [cart, setCart] = useState([]);
+  const [chapterDetails, setChapterDetails] = useState({});
+  const [chapterDetailsLoading, setChapterDetailsLoading] = useState(false);
+  const [chapterDetailsError, setChapterDetailsError] = useState(null);
 
   const { postData } = usePost();
 
@@ -1174,7 +1270,82 @@ const ExamResultReview = ({ result, examId }) => {
   };
 
   const answerItems = answersData?.data?.questions || null;
-  const recommendedLessons = answersData?.data?.recommendedLessonsToStudy || [];
+  // Recommendations come from the POST submit response; the answers endpoint
+  // is only a fallback.
+  const recommendedLessons = recommendedLessonsToStudy.length
+    ? recommendedLessonsToStudy
+    : answersData?.data?.recommendedLessonsToStudy || [];
+
+  // Unique chapter ids of the recommended lessons — prices live on the
+  // chapter endpoint (same source DiagnosticReviewDashboard uses).
+  const chapterIdsKey = [
+    ...new Set(
+      recommendedLessons.map((lesson) => lesson.chapter?.id).filter(Boolean),
+    ),
+  ].join(",");
+
+  useEffect(() => {
+    if (!chapterIdsKey) return undefined;
+    let cancelled = false;
+    setChapterDetailsLoading(true);
+    setChapterDetailsError(null);
+
+    Promise.all(
+      chapterIdsKey.split(",").map(async (chapterId) => {
+        const response = await api.get(`/api/user/chapters/${chapterId}`);
+        return [chapterId, response.data?.data || response.data];
+      }),
+    )
+      .then((entries) => {
+        if (!cancelled) setChapterDetails(Object.fromEntries(entries));
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Unable to load recommended lesson prices", err);
+          setChapterDetailsError("Some lesson prices could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setChapterDetailsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chapterIdsKey]);
+
+  // Recommended lessons enriched with their default price plan.
+  const pricedRecommendations = useMemo(
+    () =>
+      recommendedLessons.map((lesson) => {
+        const chapterId = lesson.chapter?.id;
+        const details = chapterDetails[chapterId];
+        const apiLesson = details?.lessons?.find(
+          (item) => item.id === lesson.lessonId,
+        );
+        const plan =
+          apiLesson?.pricePlans?.find((item) => item.isDefault) ||
+          apiLesson?.pricePlans?.[0];
+
+        return {
+          id: lesson.lessonId,
+          lessonId: lesson.lessonId,
+          chapterId,
+          name: lesson.lessonName || apiLesson?.name || "Lesson",
+          chapter:
+            lesson.chapter?.name ||
+            details?.chapter?.name ||
+            details?.name ||
+            "Recommended chapter",
+          course: lesson.course?.name,
+          price: Number(plan?.totalPriceEgp || plan?.priceEgp || 0),
+          planId: plan?.id,
+          planLabel: plan?.durationLabel || "",
+          priceLoaded: Boolean(apiLesson),
+        };
+      }),
+    [recommendedLessons, chapterDetails],
+  );
 
   // Prefer real counts from the answers endpoint (one row per question).
   // Fall back to the submit-response shape (mistakes + a points-based total)
@@ -1253,37 +1424,44 @@ const ExamResultReview = ({ result, examId }) => {
     });
   }, [answerItems]);
 
-  const toggleRecapLesson = (lesson) => {
-    setSelectedLessonIds((prev) =>
-      prev.includes(lesson.lessonId)
-        ? prev.filter((id) => id !== lesson.lessonId)
-        : [...prev, lesson.lessonId],
+  // Keep cart prices in sync once chapter prices finish loading.
+  const cartWithPrices = cart.map(
+    (item) => pricedRecommendations.find((rec) => rec.id === item.id) || item,
+  );
+
+  const addToCart = (item) =>
+    setCart((prev) =>
+      prev.some((cartItem) => cartItem.id === item.id) ? prev : [...prev, item],
     );
-  };
 
-  const selectAllRecapLessons = () => {
-    setSelectedLessonIds(recommendedLessons.map((lesson) => lesson.lessonId));
-  };
+  const removeFromCart = (id) =>
+    setCart((prev) => prev.filter((item) => item.id !== id));
 
-  const clearRecapLessons = () => setSelectedLessonIds([]);
+  const clearCart = () => setCart([]);
 
+  // Same checkout state shape as DiagnosticReviewDashboard.
   const checkoutRecapLessons = () => {
-    const selectedLessons = recommendedLessons.filter((lesson) =>
-      selectedLessonIds.includes(lesson.lessonId),
-    );
+    const selectedItems = cartWithPrices.map((item) => ({
+      id: item.lessonId,
+      lessonId: item.lessonId,
+      chapterId: item.chapterId,
+      lessonName: item.name,
+      chapterName: item.chapter,
+      planId: item.planId,
+      planLabel: item.planLabel,
+      price: item.price,
+    }));
+
     navigate("/user/enrollment", {
       state: {
         type: "lessonIds",
-        selectedItems: selectedLessons.map((lesson) => ({
-          id: lesson.lessonId,
-          lessonId: lesson.lessonId,
-          lessonName: lesson.lessonName,
-        })),
-        ids: selectedLessons.map((lesson) => lesson.lessonId),
+        selectedItems,
+        ids: selectedItems.map((item) => item.id),
+        price: selectedItems.reduce((sum, item) => sum + item.price, 0),
         name:
-          selectedLessons.length === 1
-            ? selectedLessons[0].lessonName
-            : `${selectedLessons.length} Lessons`,
+          selectedItems.length === 1
+            ? selectedItems[0].lessonName
+            : `${selectedItems.length} Lessons`,
         source: "exam-review-recap",
         attemptId,
       },
@@ -1411,11 +1589,10 @@ const ExamResultReview = ({ result, examId }) => {
                 </div>
               </div>
               <div
-                className={`w-full rounded-xl py-3 text-center font-bold ${
-                  isPassed
+                className={`w-full rounded-xl py-3 text-center font-bold ${isPassed
                     ? "bg-green-100 text-green-700"
                     : "bg-red-100 text-red-700"
-                }`}
+                  }`}
               >
                 {isPassed ? "✅ PASSED" : "❌ NOT PASSED"}
               </div>
@@ -1541,17 +1718,16 @@ const ExamResultReview = ({ result, examId }) => {
         </section>
 
         {/* Recommendation recap */}
-        {examHasAnswers && (
-          <ExamRecapRecommendations
-            lessons={recommendedLessons}
-            loading={answersLoading && !answersData}
-            selectedIds={selectedLessonIds}
-            onToggle={toggleRecapLesson}
-            onSelectAll={selectAllRecapLessons}
-            onClearAll={clearRecapLessons}
-            onCheckout={checkoutRecapLessons}
-          />
-        )}
+        <ExamRecapRecommendations
+          recommendations={pricedRecommendations}
+          cart={cartWithPrices}
+          loading={chapterDetailsLoading}
+          error={chapterDetailsError}
+          onAdd={addToCart}
+          onRemove={removeFromCart}
+          onClearAll={clearCart}
+          onCheckout={checkoutRecapLessons}
+        />
 
         {/* Parallel questions */}
         {parallelData && (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Clock3, RefreshCw, X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import api from "../../../api/api";
 import { formatPlanTime } from "./AvailabilityPlanCard";
 
@@ -40,14 +40,19 @@ const getErrorMessage = (error) =>
   error?.message ||
   "Could not load the available times.";
 
-// Shape sent to the plan API. Kept identical to the previous free-form version
-// (dayOfWeek / timeFrom / timeTo). If your backend expects slot ids instead,
-// change it here only, e.g. return { slotId: slot.id }.
+// Shape sent to the plan API (dayOfWeek / timeFrom / timeTo).
+// If your backend expects slot ids instead, change it here only.
 const buildSlotPayload = (slot) => ({
   dayOfWeek: slot.dayOfWeek,
   timeFrom: `${toHM(slot.timeFrom)}:00`,
   timeTo: `${toHM(slot.timeTo)}:00`,
 });
+
+const defaultTitle = () =>
+  `My free times — ${new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })}`;
 
 const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
   const [title, setTitle] = useState("");
@@ -77,7 +82,8 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
         .sort((a, b) => a.timeFrom.localeCompare(b.timeFrom));
       setAvailableSlots(slots);
     } catch (error) {
-      if (error?.code === "ERR_CANCELED" || error?.name === "CanceledError") return;
+      if (error?.code === "ERR_CANCELED" || error?.name === "CanceledError")
+        return;
       setSlotsError(getErrorMessage(error));
     } finally {
       if (!signal?.aborted) setSlotsLoading(false);
@@ -93,7 +99,7 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
   /* ---------------- Initialise from the plan being edited ---------------- */
 
   useEffect(() => {
-    setTitle(plan?.title || "");
+    setTitle(plan?.title || defaultTitle());
     setNotes(plan?.notes || "");
     setSelectedKeys((plan?.slots || []).map(slotKey));
     setValidationError("");
@@ -115,9 +121,10 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
   );
 
   // Times saved in the plan that the admin no longer offers.
-  const staleCount = slotsLoading || slotsError
-    ? 0
-    : selectedKeys.filter((key) => !availableKeys.has(key)).length;
+  const staleCount =
+    slotsLoading || slotsError
+      ? 0
+      : selectedKeys.filter((key) => !availableKeys.has(key)).length;
 
   const validSelectedCount = selectedKeys.filter((key) =>
     availableKeys.has(key),
@@ -151,7 +158,7 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
     event.preventDefault();
 
     if (!title.trim()) {
-      setValidationError("Enter a title for your availability plan.");
+      setValidationError("Enter a title for your time slots.");
       return;
     }
     // Only submit times the admin still offers.
@@ -159,7 +166,7 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
       selectedKeys.includes(slotKey(slot)),
     );
     if (!chosen.length) {
-      setValidationError("Choose at least one available time.");
+      setValidationError("Pick at least one free time first.");
       return;
     }
 
@@ -173,30 +180,56 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
   const noSlotsOffered =
     !slotsLoading && !slotsError && availableSlots.length === 0;
 
+  // Banner like the design: explains what happens when they save.
+  const banner =
+    plan?.status === "accepted" || plan?.status === "pending_student_response"
+      ? {
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+        text: "These times were already reviewed by the admin. Changing them sends the new times for approval again.",
+      }
+      : plan?.status === "rejected"
+        ? {
+          className: "border-red-200 bg-red-50 text-red-700",
+          text: "Update your times and send them again — the admin will build a new plan.",
+        }
+        : {
+          className: "border-slate-200 bg-slate-50 text-slate-600",
+          text: "Pick your free times and send them to the admin. Your study plan is built from these slots.",
+        };
+
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-3 sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !saving) onClose();
       }}
     >
-      <section
+      <form
+        onSubmit={handleSubmit}
         role="dialog"
         aria-modal="true"
         aria-labelledby="availability-form-title"
-        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-8"
+        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
       >
-        <div className="mb-6 flex items-start justify-between gap-4">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 md:px-6">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-wider text-one">
-              Availability plan
-            </p>
             <h2
               id="availability-form-title"
-              className="mt-1 text-2xl font-bold text-slate-900"
+              className="font-bold text-gray-900"
             >
-              {plan ? "Edit your plan" : "Create a new plan"}
+              My free times (availability)
             </h2>
+            <p className="text-xs text-gray-400">
+              {validSelectedCount}{" "}
+              {validSelectedCount === 1 ? "slot" : "slots"} selected
+              {plan?.id && (
+                <span className="font-bold text-amber-600">
+                  {" "}
+                  · editing a saved plan
+                </span>
+              )}
+            </p>
           </div>
           <button
             type="button"
@@ -209,169 +242,188 @@ const AvailabilityPlanForm = ({ plan, saving, onClose, onSubmit }) => {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Plan title
-            </span>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              maxLength={160}
-              placeholder="e.g. My availability for next week"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-one focus:ring-2 focus:ring-one/10"
-            />
-          </label>
+        {/* Body */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 md:px-6">
+          <div className={`rounded-xl border px-4 py-3 text-sm ${banner.className}`}>
+            {banner.text}
+          </div>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Notes <span className="font-normal text-slate-400">(optional)</span>
-            </span>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={3}
-              placeholder="Share any preferences with the team"
-              className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-one focus:ring-2 focus:ring-one/10"
-            />
-          </label>
-
-          <div>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h3 className="font-semibold text-slate-800">Available times</h3>
-                <p className="text-sm text-slate-500">
-                  Choose the times that work for you.
-                  {validSelectedCount > 0 && (
-                    <span className="ms-1 font-semibold text-one">
-                      {validSelectedCount} selected
-                    </span>
-                  )}
-                </p>
-              </div>
+          {staleCount > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {staleCount === 1
+                ? "1 of your times is no longer offered and will be removed when you save. Pick a new one."
+                : `${staleCount} of your times are no longer offered and will be removed when you save. Pick new ones.`}
             </div>
+          )}
 
-            {slotsLoading ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-8 text-center text-sm text-slate-500">
-                Loading available times...
-              </div>
-            ) : slotsError ? (
-              <div className="rounded-2xl border border-red-100 bg-red-50 p-5 text-center">
-                <p className="text-sm font-medium text-red-700">{slotsError}</p>
-                <button
-                  type="button"
-                  onClick={() => loadSlots()}
-                  className="mt-3 inline-flex items-center gap-2 rounded-xl bg-one px-4 py-2 text-sm font-semibold text-white"
-                >
-                  <RefreshCw size={15} />
-                  Try again
-                </button>
-              </div>
-            ) : noSlotsOffered ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center text-sm text-slate-500">
-                No times are available right now. Please check back later.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {DAYS.filter((day) => slotsByDay[day]?.length).map((day) => {
-                  const daySlots = slotsByDay[day];
-                  const allSelected = daySlots.every((slot) =>
-                    selectedKeys.includes(slotKey(slot)),
-                  );
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-bold text-slate-700">
+                Title
+              </span>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                required
+                maxLength={160}
+                placeholder="e.g. My availability for next week"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-one focus:ring-2 focus:ring-one/10"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-bold text-slate-700">
+                Notes <span className="font-normal text-slate-400">(optional)</span>
+              </span>
+              <input
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                maxLength={500}
+                placeholder="e.g. I prefer evenings on school days"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-one focus:ring-2 focus:ring-one/10"
+              />
+            </label>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Times offered by the academy. Pick every slot you can attend.
+          </p>
+
+          {slotsLoading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {DAYS.slice(0, 4).map((day) => (
+                <div
+                  key={day}
+                  className="h-36 animate-pulse rounded-xl border border-slate-200 bg-slate-50"
+                />
+              ))}
+            </div>
+          ) : slotsError ? (
+            <div className="rounded-xl border border-red-100 bg-red-50 p-5 text-center">
+              <p className="text-sm font-medium text-red-700">{slotsError}</p>
+              <button
+                type="button"
+                onClick={() => loadSlots()}
+                className="mt-3 inline-flex items-center gap-2 rounded-xl bg-one px-4 py-2 text-sm font-semibold text-white"
+              >
+                <RefreshCw size={15} />
+                Try again
+              </button>
+            </div>
+          ) : noSlotsOffered ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center text-sm text-slate-500">
+              No times are offered right now. Please check back later.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {DAYS.map((day) => {
+                const daySlots = slotsByDay[day] || [];
+
+                if (!daySlots.length) {
                   return (
                     <div
                       key={day}
-                      className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3"
+                      className="rounded-xl border border-dashed border-slate-200 bg-white p-4"
                     >
-                      <div className="mb-2 flex items-center justify-between px-1">
-                        <span className="text-sm font-bold text-slate-700">
-                          {day}
-                        </span>
-                        {daySlots.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => toggleDay(day)}
-                            disabled={saving}
-                            className="text-xs font-semibold text-one hover:underline disabled:opacity-50"
-                          >
-                            {allSelected ? "Clear day" : "Select all"}
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {daySlots.map((slot) => {
-                          const selected = selectedKeys.includes(slotKey(slot));
-                          return (
-                            <button
-                              key={slot.id ?? slotKey(slot)}
-                              type="button"
-                              role="checkbox"
-                              aria-checked={selected}
-                              disabled={saving}
-                              onClick={() => toggleSlot(slot)}
-                              className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-start text-sm font-semibold transition disabled:opacity-60 ${selected
-                                  ? "border-one bg-one/10 text-one"
-                                  : "border-slate-200 bg-white text-slate-700 hover:border-one/40"
-                                }`}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <Clock3 size={15} />
-                                {formatPlanTime(slot.timeFrom)} –{" "}
-                                {formatPlanTime(slot.timeTo)}
-                              </span>
-                              <span
-                                className={`flex h-5 w-5 items-center justify-center rounded-full border ${selected
-                                    ? "border-one bg-one text-white"
-                                    : "border-slate-300"
-                                  }`}
-                              >
-                                {selected && <Check size={13} />}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <p className="mb-1 text-sm font-bold text-slate-400">
+                        {day}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        No sessions offered on this day.
+                      </p>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                }
 
-            {staleCount > 0 && (
-              <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {staleCount === 1
-                  ? "1 time saved in this plan is no longer offered and will be removed when you save."
-                  : `${staleCount} times saved in this plan are no longer offered and will be removed when you save.`}
-              </p>
-            )}
-          </div>
+                const count = daySlots.filter((slot) =>
+                  selectedKeys.includes(slotKey(slot)),
+                ).length;
+
+                return (
+                  <div
+                    key={day}
+                    className={`rounded-xl border p-4 transition ${count
+                        ? "border-red-200 bg-red-50/30"
+                        : "border-slate-200 bg-slate-50"
+                      }`}
+                  >
+                    <div className="mb-2 flex items-center justify-between border-b border-slate-200 pb-2">
+                      <p className="text-sm font-bold text-gray-800">{day}</p>
+                      <span className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          {count
+                            ? `${count}/${daySlots.length}`
+                            : `${daySlots.length} offered`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleDay(day)}
+                          disabled={saving}
+                          className="text-[11px] font-bold text-one hover:underline disabled:opacity-50"
+                        >
+                          {count === daySlots.length ? "None" : "All"}
+                        </button>
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {daySlots.map((slot) => (
+                        <label
+                          key={slot.id ?? slotKey(slot)}
+                          className="flex cursor-pointer items-center gap-2 py-0.5 text-[13px] text-gray-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedKeys.includes(slotKey(slot))}
+                            onChange={() => toggleSlot(slot)}
+                            disabled={saving}
+                            className="h-4 w-4 cursor-pointer rounded accent-one"
+                          />
+                          {formatPlanTime(slot.timeFrom)} –{" "}
+                          {formatPlanTime(slot.timeTo)}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {validationError && (
-            <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p
+              role="alert"
+              className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+            >
               {validationError}
             </p>
           )}
+        </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+        {/* Footer */}
+        <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between md:px-6">
+          <p className="text-xs text-slate-400">
+            The admin reviews your times, then sends you a study plan to approve.
+          </p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="rounded-xl px-5 py-3 font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200/60 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving || slotsLoading || Boolean(slotsError) || noSlotsOffered}
-              className="rounded-xl bg-one px-6 py-3 font-semibold text-white shadow-lg shadow-one/15 transition hover:bg-one/90 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={
+                saving || slotsLoading || Boolean(slotsError) || noSlotsOffered
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
             >
-              {saving ? "Saving..." : plan ? "Save changes" : "Submit plan"}
+              {saving ? "Sending..." : "Save & send to admin"}
             </button>
           </div>
-        </form>
-      </section>
+        </div>
+      </form>
     </div>
   );
 };
