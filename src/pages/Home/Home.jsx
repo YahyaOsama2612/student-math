@@ -76,7 +76,15 @@ const mainFeatures = [
       { label: "Remaining Homework", icon: Book, path: "/user/remaining" },
     ],
   },
-
+  {
+    title: "Reports",
+    description:
+      "Review your quiz reports, score analytics, and mistakes breakdown",
+    MainIcon: FileText,
+    buttons: [
+      { label: "Quiz Reports", icon: BarChart, path: "/user/reports/quizzes" },
+    ],
+  },
 ];
 
 // 2. Component مخصص للكروت الرئيسية لمنع التكرار

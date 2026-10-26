@@ -35,6 +35,7 @@ import Quiz from "../pages/Quizes/quiz";
 import PromoPage from "../pages/PromoCode/promo";
 import RemainingHomework from "../pages/Remaining/Remaining";
 import AvailabilityPlans from "../pages/AvailabilityPlans/AvailabilityPlans";
+import QuizReports from "../pages/Reports/QuizReports";
 const router = createBrowserRouter([
   {
     path: "/",
@@ -175,6 +176,14 @@ const router = createBrowserRouter([
       {
         path: "availability-plans/:id",
         element: <AvailabilityPlans />,
+      },
+      {
+        path: "reports",
+        element: <QuizReports />,
+      },
+      {
+        path: "reports/quizzes",
+        element: <QuizReports />,
       }
     ],
   },
