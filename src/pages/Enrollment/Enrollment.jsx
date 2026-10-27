@@ -173,11 +173,23 @@ const Enrollment = () => {
     }
 
     try {
-      await postData(
+      const res = await postData(
         payload,
         null,
         "Enrollment request submitted successfully!",
       );
+
+      const redirectUrl =
+        res?.checkoutUrl ||
+        res?.paymentUrl ||
+        res?.data?.checkoutUrl ||
+        res?.data?.paymentUrl;
+
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return;
+      }
+
       setTimeout(() => {
         navigate("/user/home");
       }, 1500);

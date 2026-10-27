@@ -219,8 +219,14 @@ const Payment = () => {
 
     try {
       const res = await postData(body, endpoint);
-      if (isAutomatic && res?.paymentUrl) {
-        window.location.href = res.paymentUrl;
+      const redirectUrl =
+        res?.checkoutUrl ||
+        res?.paymentUrl ||
+        res?.data?.checkoutUrl ||
+        res?.data?.paymentUrl;
+
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
       } else {
         toast.success(
           isUpgrade

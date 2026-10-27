@@ -88,9 +88,15 @@ const Wallet = () => {
         try {
             const response = await postData(body, endpoint, "Request sent successfully");
             
-            // لو الدفع أوتوماتيك وجاء لينك دفع في الرد، ممكن تحوله عليه
-            if (selectedMethod.type === "Automatic" && response?.paymentUrl) {
-                window.location.href = response.paymentUrl;
+            const redirectUrl =
+                response?.checkoutUrl ||
+                response?.paymentUrl ||
+                response?.data?.checkoutUrl ||
+                response?.data?.paymentUrl;
+
+            // لو جاء لينك دفع/checkout في الرد، نقوم بالتحويل عليه
+            if (redirectUrl) {
+                window.location.href = redirectUrl;
             } else {
                 setIsModalOpen(false);
                 setFormData({ amount: '', paymentMethodId: '', receiptImg: '' });
