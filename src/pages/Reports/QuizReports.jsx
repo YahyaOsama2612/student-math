@@ -9,7 +9,6 @@ import {
   MistakeItem,
   PdfModal,
   PlButton,
-  TabBtn,
   VideoModal,
   extractList,
   fmtShort,
@@ -86,20 +85,17 @@ const QuizChip = ({ quiz, onClick }) => {
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
-const FILTERS = [
-  ["all", "All quizzes"],
-  ["attend", "Attended"],
-  ["waiting", "To do"],
-  ["absent", "Missed"],
-];
-
 const QuizReports = () => {
   const navigate = useNavigate();
-  const { data: response, loading, error, refetch } = useGet(
-    "/api/user/reports/quizzes",
-  );
+  const [courseId, setCourseId] = useState("");
+  const requestUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (courseId) params.set("courseId", courseId);
+    const query = params.toString();
+    return `/api/user/reports/quizzes${query ? `?${query}` : ""}`;
+  }, [courseId]);
+  const { data: response, loading, error, refetch } = useGet(requestUrl);
 
-  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [openQuiz, setOpenQuiz] = useState(null);
   const [pdfModal, setPdfModal] = useState(null); // { url, title }
@@ -107,20 +103,23 @@ const QuizReports = () => {
 
   // { success, data: { message, data: [] } } | { data: [] } | []
   const quizzes = useMemo(() => extractList(response), [response]);
+  const courses = useMemo(
+    () => (Array.isArray(response?.data?.courses) ? response.data.courses : []),
+    [response],
+  );
 
   /* ---------- Filtered quizzes ---------- */
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return quizzes.filter((quiz) => {
-      const matchStatus = filter === "all" || quiz.status === filter;
       const matchSearch =
         !q ||
         quiz.quizName?.toLowerCase().includes(q) ||
         quiz.lesson?.name?.toLowerCase().includes(q);
-      return matchStatus && matchSearch;
+      return matchSearch;
     });
-  }, [quizzes, filter, search]);
+  }, [quizzes, search]);
 
   /* ---------- Rows: one per lesson, its quizzes as columns ---------- */
 
@@ -223,9 +222,6 @@ const QuizReports = () => {
       });
     return [...map.values()].slice(0, 4);
   }, [quizzes]);
-
-  const countFor = (key) =>
-    key === "all" ? quizzes.length : quizzes.filter((q) => q.status === key).length;
 
   /* ---------- CSV export ---------- */
 
@@ -377,16 +373,23 @@ const QuizReports = () => {
 
         {/* Filters */}
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {FILTERS.map(([key, label]) => (
-              <TabBtn
-                key={key}
-                active={filter === key}
-                onClick={() => setFilter(key)}
-              >
-                {label} <span className="opacity-70">{countFor(key)}</span>
-              </TabBtn>
-            ))}
+          <div>
+            <label htmlFor="quiz-course-filter" className="sr-only">
+              Filter quizzes by course
+            </label>
+            <select
+              id="quiz-course-filter"
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              className="min-w-52 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#7d0a0a] focus:ring-[3px] focus:ring-[#7d0a0a]/10"
+            >
+              <option value="">All courses</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="relative lg:w-72">
             <Search
@@ -531,7 +534,7 @@ const QuizReports = () => {
             </p>
             <p className="text-sm text-slate-500">
               {quizzes.length
-                ? "No quizzes match this filter."
+                ? "No quizzes match this course or search."
                 : "You don't have any quiz reports yet."}
             </p>
           </section>
