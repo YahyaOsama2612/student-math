@@ -1,158 +1,200 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { Play } from "lucide-react";
-import Swal from "sweetalert2";
-import useGet from "../../hooks/useGet";
-import usePost from "../../hooks/usePost";
-import ActiveExam from "./ActiveExam";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import api from "@/api/api";
+import useGet from "@/hooks/useGet";
+import Icon from "@/components/portal/Icon";
+import { EmptyCard, Modal, Page, PageHead } from "@/components/portal/ui";
+import ActiveExam from "./ActiveExam";
 
-const Exams = () => {
-  const { data: response, loading, error } = useGet("api/user/exams");
-  const { postData } = usePost("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [activeExam, setActiveExam] = useState(null);
-  const [activeTab, setActiveTab] = useState("");
+/* Exams | Diagnose (MathPortal design). One page for both kinds; the URL decides which tab is open:
+   /user/exams → official papers, /user/diagnostic → diagnostic trials. */
+
+const BLOCKED_KEY = "diagnosticBlockedExams";
+const errText = (err) => err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || "";
+const scoreTone = (pct) => (pct >= 75 ? "green" : pct >= 50 ? "amber" : "red");
+
+function readBlocked() {
+  try { return JSON.parse(localStorage.getItem(BLOCKED_KEY) || "{}"); } catch { return {}; }
+}
+
+export default function Exams({ kind = "exam" }) {
   const navigate = useNavigate();
+  const isD = kind === "diagnostic";
+  const { data: examData, loading: examLoading, error: examError } = useGet(isD ? null : "/api/user/exams");
+  const { data: diagData, loading: diagLoading } = useGet(isD ? "/api/user/diagnostic-exams" : null);
+  const { data: reportData } = useGet(isD ? "/api/user/reports/diagnostic-exam" : "/api/user/reports/exams");
+  const [family, setFamily] = useState("all");
+  const [confirm, setConfirm] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [activeExam, setActiveExam] = useState(null);
+  const [blocked, setBlocked] = useState(readBlocked);
 
-  // 1. Handle errors when loading exams on initial page load
-  useEffect(() => {
-    if (error) {
-      const errorMsg = typeof error === "string" ? error : error?.message || "";
+  useEffect(() => { try { localStorage.setItem(BLOCKED_KEY, JSON.stringify(blocked)); } catch { /* private mode */ } }, [blocked]);
+  useEffect(() => { setFamily("all"); }, [kind]);
 
-      if (
-        errorMsg.includes("You do not have balance") ||
-        errorMsg.includes("balance")
-      ) {
-        Swal.fire("Error", errorMsg, "error").then(() => {
-          navigate("/user/payment");
-        });
-      } else {
-        Swal.fire("Error", errorMsg, "error");
-      }
+  /** Every paper as { id, name, description, family, minutes, questions, done } */
+  const papers = useMemo(() => {
+    if (isD) {
+      return (diagData?.data?.data || []).flatMap((c) => (c.diagnosticExams || []).map((e) => ({
+        id: e.id, name: e.name, description: e.description, family: c.name, minutes: e.duration, questions: e.numberOfQuestions, done: !!e.isCompleted, raw: e,
+      })));
     }
-  }, [error, navigate]);
+    return (examData?.data?.courses || []).flatMap((c) => (c.exams || []).map((e) => ({
+      id: e.id, name: e.title, description: e.description, family: e.codeName || c.name || "Exams", raw: e,
+    })));
+  }, [isD, examData, diagData]);
 
-  // Extract unique tabs
-  const tabs = useMemo(() => {
-    if (!response?.data?.courses) return [];
-    const codes = new Set();
-    response.data.courses.forEach((course) => {
-      course.exams.forEach((exam) => {
-        if (exam.codeName) codes.add(exam.codeName);
-      });
+  /** Latest result per paper from the reports API. */
+  const results = useMemo(() => {
+    const list = reportData?.data?.data || reportData?.data || [];
+    const map = new Map();
+    (Array.isArray(list) ? list : []).forEach((r) => {
+      const id = r.examId || r.diagnosticExamId;
+      // the reports list every exam; only ones with an attempt and a score were taken
+      if (id && r.attemptId && r.score != null && !map.has(id)) map.set(id, r);
     });
-    return Array.from(codes);
-  }, [response]);
+    return map;
+  }, [reportData]);
 
-  useEffect(() => {
-    if (tabs.length > 0 && !activeTab) {
-      setActiveTab(tabs[0]);
-    }
-  }, [tabs, activeTab]);
+  const families = [...new Set(papers.map((p) => p.family))];
+  const list = papers.filter((p) => family === "all" || p.family === family);
+  const loading = isD ? diagLoading : examLoading;
 
-  // Start exam handler
-  const handleStartExam = async (exam) => {
+  const start = async (p) => {
+    setStarting(true);
     try {
-      const res = await postData(
-        {},
-        `/api/user/exams/${exam.id}/start`,
-        "start",
-      );
-
-      if (res?.success || res?.status === 200) {
-        setActiveExam({ ...exam, attemptId: res.data.attemptId });
-      } else {
-        const errorMsg =
-          res?.message || res?.data?.message || "Could not start the exam";
-
-        if (errorMsg.includes("You do not have balance")) {
-          await Swal.fire("Error", errorMsg, "error");
-          navigate("/user/payment");
-        } else {
-          Swal.fire("Error", errorMsg, "error");
-        }
-      }
+      const res = await api.post(isD ? `/api/user/diagnostic-exams/${p.id}/start` : `/api/user/exams/${p.id}/start`, {});
+      const attemptId = res?.data?.data?.attemptId;
+      setConfirm(null);
+      if (isD) navigate(`/user/activeexam/${p.id}`, { state: { exam: p.minutes, attemptId } });
+      else setActiveExam({ ...p.raw, attemptId });
     } catch (err) {
-      const errorMsg =
-        err?.response?.data?.message ||
-        err?.message ||
-        " You do not have balance, please try to purchase an exam package.";
-
-      if (errorMsg.includes("You do not have balance")) {
-        await Swal.fire("Error", errorMsg, "error");
-        navigate("/user/payment");
+      const msg = errText(err);
+      setConfirm(null);
+      if (isD && msg.includes("already been submitted")) {
+        setBlocked((b) => ({ ...b, [p.id]: true }));
+        setNotice({ title: "Attempt already submitted", text: "This exam attempt has already been submitted. Ask the admin if you’d like it reopened." });
+      } else if (/balance/i.test(msg)) {
+        setNotice({ title: "No exam balance left", text: msg || "Buy an exam package to take this exam.", store: true });
       } else {
-        Swal.fire("Error", errorMsg, "error");
+        setNotice({ title: "Could not start the exam", text: msg || "Please try again." });
       }
+    } finally {
+      setStarting(false);
     }
   };
 
-  if (activeExam) {
-    return <ActiveExam exam={activeExam} onExit={() => setActiveExam(null)} />;
-  }
+  if (activeExam) return <ActiveExam exam={activeExam} onExit={() => setActiveExam(null)} />;
 
-  if (loading) return <div className="p-8">Loading...</div>;
-
-  // 2. Prevent rendering raw error text on screen while redirecting
-  if (error) return null;
-
-  const courses = response?.data?.courses || [];
+  const chip = (k, l) => (
+    <button key={k} onClick={() => setFamily(k)} className={`px-3.5 py-1.5 rounded-full text-xs font-bold border ${family === k ? "bg-one text-white border-one" : "bg-white text-slate-600 border-slate-200 hover:border-one hover:text-one"}`}>{l}</button>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8 font-sans">
+    <Page wide>
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">
-          Practice Tests
-        </h1>
+        <PageHead title={isD ? "Diagnose" : "Exams"} text={isD ? "Trial exams that find your level — timed like the real test." : "Past official papers, taken section by section like the real test."}>
+          <button className="btn-ghost" onClick={() => navigate(isD ? "/user/reports/diagnostic-exam" : "/user/reports/exams")}>My results</button>
+        </PageHead>
 
-        {/* Tabs */}
-        <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap ${
-                activeTab === tab
-                  ? "bg-one text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              {tab}
-            </button>
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-5 w-fit">
+          {[["exam", "Exams", "/user/exams"], ["diagnostic", "Diagnose", "/user/diagnostic"]].map(([k, l, to]) => (
+            <button key={k} onClick={() => navigate(to)} className={`px-4 py-2 rounded-lg text-sm font-bold ${kind === k ? "bg-white text-one shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{l}</button>
           ))}
         </div>
 
-        {/* Exams List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {courses.map((course) =>
-            course.exams
-              .filter(
-                (exam) =>
-                  exam.codeName === activeTab &&
-                  exam.title.toLowerCase().includes(searchTerm.toLowerCase()),
-              )
-              .map((exam) => (
-                <div
-                  key={exam.id}
-                  className="bg-white rounded-xl shadow-sm border p-6 hover:shadow-md transition-shadow"
-                >
-                  <h2 className="text-xl font-bold mb-2">{exam.title}</h2>
-                  <p className="text-gray-500 text-sm mb-4">
-                    {exam.description}
-                  </p>
-                  <button
-                    onClick={() => handleStartExam(exam)}
-                    className="w-full flex justify-center items-center bg-one text-white py-2 rounded-lg hover:bg-opacity-90 transition-all"
-                  >
-                    <Play className="w-4 h-4 mr-2" /> Start Test
-                  </button>
-                </div>
-              )),
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 mb-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex gap-3">
+            <span className="w-10 h-10 rounded-xl bg-green-50 text-green-700 flex items-center justify-center font-extrabold shrink-0">✓</span>
+            <div><p className="font-bold text-slate-900">One try per {isD ? "trial" : "exam"}</p><p className="text-sm text-slate-500">{isD ? "Each diagnostic exam is taken once. Need another try? Ask the admin." : "Each exam uses one exam from your package balance."}</p></div>
+          </div>
+          <div className="flex gap-3">
+            <span className="w-10 h-10 rounded-xl bg-red-50 text-one flex items-center justify-center shrink-0"><Icon name="lock" size={18} /></span>
+            <div className="min-w-0">
+              <p className="font-bold text-slate-900">See your mistakes</p>
+              <p className="text-sm text-slate-500">After an exam, review the questions you missed with the right answers and the lessons to recap.</p>
+              <button className="text-xs font-bold text-one hover:underline mt-1" onClick={() => navigate("/user/payment")}>Get exam packages →</button>
+            </div>
+          </div>
+        </section>
 
-export default Exams;
+        {families.length > 1 && <div className="flex flex-wrap gap-2 mb-4">{chip("all", isD ? "All trials" : "All exams")}{families.map((f) => chip(f, f))}</div>}
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">{[1, 2, 3].map((i) => <div key={i} className="skel h-48"></div>)}</div>
+        ) : list.length ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {list.map((p) => {
+              const r = results.get(p.id);
+              const taken = p.done || !!r || blocked[p.id];
+              const pct = r && r.totalScore ? Math.round((r.score / r.totalScore) * 100) : null;
+              return (
+                <div key={p.id} className="card p-5 flex flex-col">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <span className="pl-course">{p.family}</span>
+                    {taken
+                      ? <span className="st-pill" style={{ color: "#15803d", background: "#f0fdf4", borderColor: "#bbf7d0" }}>Taken</span>
+                      : <span className="st-pill" style={{ color: "#64748b", background: "#f8fafc", borderColor: "#e2e8f0" }}>Not taken</span>}
+                  </div>
+                  <h3 className="font-extrabold text-slate-900 leading-snug">{p.name}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{[p.questions ? `${p.questions} questions` : "", p.minutes ? `${p.minutes} min` : "", !isD ? p.description : ""].filter(Boolean).join(" · ") || p.description}</p>
+                  {r && (
+                    <div className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your score</p><p className={`text-2xl font-extrabold score ${scoreTone(pct ?? 0)}`}>{r.score}{r.totalScore ? <span className="text-sm text-slate-400"> / {r.totalScore}</span> : null}</p></div>
+                      <div className="text-xs text-slate-500 ml-auto text-right">{r.mistakesCount != null ? `${r.mistakesCount} mistake${r.mistakesCount === 1 ? "" : "s"}` : ""}{r.date ? <><br />{new Date(r.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</> : null}</div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-auto pt-4">
+                    {taken && isD
+                      ? <button className="pl-btn flex-1 justify-center" disabled style={{ opacity: 0.6 }} title="Each diagnostic exam is one try — ask the admin for another try">✓ Taken · one try</button>
+                      : <button className="pl-btn primary flex-1 justify-center" onClick={() => setConfirm(p)}>{taken ? "Take again" : "Start exam"}</button>}
+                    {r && <button className="pl-btn" onClick={() => navigate(isD ? "/user/reports/diagnostic-exam" : "/user/reports/exams")}>Result</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : !isD && /balance/i.test(String(examError?.message || examError || "")) ? (
+          <EmptyCard
+            title="No exam balance left"
+            text={String(examError?.message || examError)}
+            action={<button className="btn-primary" style={{ width: "auto", margin: "0 auto" }} onClick={() => navigate("/user/payment")}>Buy an exam package</button>}
+          />
+        ) : (
+          <EmptyCard title={isD ? "No diagnostic exams yet" : "No exams yet"} text="Exams for your courses show up here." />
+        )}
+      </div>
+
+      {confirm && (
+        <Modal
+          title="Are you ready?"
+          onClose={() => setConfirm(null)}
+          actions={<>
+            <button className="pl-btn" onClick={() => setConfirm(null)}>Not now</button>
+            <button className="pl-btn primary" onClick={() => start(confirm)} disabled={starting}>{starting ? "Starting…" : "Start now"}</button>
+          </>}
+        >
+          <p>You are about to start <b className="text-slate-900">{confirm.name}</b>.</p>
+          <ul className="mt-2 space-y-1">
+            {confirm.minutes ? <li>⏱️ <b>Duration:</b> {confirm.minutes} minutes</li> : null}
+            {confirm.questions ? <li>❓ <b>Questions:</b> {confirm.questions}</li> : null}
+            {!isD && <li>The timer starts per section once you begin it.</li>}
+          </ul>
+        </Modal>
+      )}
+      {notice && (
+        <Modal
+          title={notice.title}
+          onClose={() => setNotice(null)}
+          actions={<>
+            {notice.store && <button className="pl-btn" onClick={() => navigate("/user/payment")}>Go to store</button>}
+            <button className="pl-btn primary" onClick={() => setNotice(null)}>OK</button>
+          </>}
+        >
+          <p>{notice.text}</p>
+        </Modal>
+      )}
+    </Page>
+  );
+}

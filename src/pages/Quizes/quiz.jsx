@@ -1,21 +1,10 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
-import Loader from "@/components/Loading";
-import Errorpage from "@/components/Errorpage";
-import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle,
-  HelpCircle,
-  Award,
-  Calendar,
-  FileText,
-} from "lucide-react";
 import usePost from "@/hooks/usePost";
+import { EmptyCard, Modal, Page } from "@/components/portal/ui";
 
-// دالة مساعدة لتنظيف النصوص التي تحتوي على تاغات p أو نصوص زائدة قادمة من الـ API
+// Cleans question text that comes from the API wrapped in p tags / HTML
 const cleanQuestionText = (text) => {
   if (!text) return "";
   return text
@@ -24,84 +13,89 @@ const cleanQuestionText = (text) => {
     .replace(/<\/?[^>]+(>|$)/g, "");
 };
 
+const LETTERS = "ABCDEFGH";
+
+/** Answer choice (design: choiceBtn). */
+const ChoiceBtn = ({ letter, label, on, onClick }) => (
+  <button
+    type="button"
+    role="radio"
+    aria-checked={on}
+    onClick={onClick}
+    className={`flex items-center gap-3 w-full text-left rounded-xl border-2 px-4 py-3 transition-colors ${on ? "border-one bg-red-50/60" : "border-slate-200 hover:border-slate-300 bg-white"}`}
+  >
+    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-sm shrink-0 ${on ? "bg-one text-white" : "bg-slate-100 text-slate-600"}`}>{letter}</span>
+    <span className="font-semibold text-slate-800 break-words min-w-0">{label}</span>
+  </button>
+);
+
 const Quiz = () => {
   const { quizId } = useParams();
   const navigate = useNavigate();
 
-  // جلب الأسئلة باستخدام الهوك الخاص بالمشروع
-  const { data, loading, error } = useGet(
-    `/api/user/quizzes/${quizId}/questions`,
-  );
-  // مؤشر السؤال الحالي
+  const { data, loading, error } = useGet(`/api/user/quizzes/${quizId}/questions`);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-
-  // حفظ إجابات المستخدم: مفتاح الكائن هو الـ questionId
-  // القيمة ستكون عبارة عن كائن يحتوي على { selectedOptionId, gridInAnswer }
+  // { [questionId]: { questionId, selectedOptionId, gridInAnswer } }
   const [userAnswers, setUserAnswers] = useState({});
-
+  const [confirming, setConfirming] = useState(false);
   const { postData, loading: submitting } = usePost();
 
-  if (loading) return <Loader />;
-  if (error) return <Errorpage error={error} />;
+  if (error) {
+    return (
+      <Page>
+        <section className="rp-card">
+          <p className="text-sm text-red-600 mb-3">{typeof error === "string" ? error : "Could not load this quiz."}</p>
+          <button className="pl-btn" onClick={() => navigate(-1)}>← Go back</button>
+        </section>
+      </Page>
+    );
+  }
+  if (loading || !data) {
+    return (
+      <Page>
+        <div className="skel h-20 mb-4"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_16rem] gap-4"><div className="skel h-80"></div><div className="skel h-56"></div></div>
+      </Page>
+    );
+  }
 
-  // استخراج مصفوفة الأسئلة بناءً على الريسبونس المرسل
   const questionsList = data?.data?.data || [];
 
   if (questionsList.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <HelpCircle className="w-16 h-16 text-gray-400 mb-4" />
-        <h2 className="text-xl font-bold text-gray-800 mb-2">
-          No Questions Found
-        </h2>
-        <p className="text-gray-500 mb-6">
-          This quiz doesn't have any questions yet.
-        </p>
-        <button
-          onClick={() => navigate(-1)}
-          className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm"
-        >
-          Go Back
-        </button>
-      </div>
+      <Page>
+        <EmptyCard
+          title="No questions found"
+          text="This quiz doesn't have any questions yet."
+          action={<button className="pl-btn" onClick={() => navigate(-1)}>← Go back</button>}
+        />
+      </Page>
     );
   }
 
   const currentQuestion = questionsList[currentQuestionIndex];
   const totalQuestions = questionsList.length;
+  const isAnswered = (q) => !!(userAnswers[q.id]?.selectedOptionId || userAnswers[q.id]?.gridInAnswer);
+  const answeredCount = questionsList.filter(isAnswered).length;
+  const unanswered = totalQuestions - answeredCount;
 
-  // التعامل مع اختيار إجابة في أسئلة الـ MCQ
   const handleOptionSelect = (questionId, optionId) => {
     setUserAnswers((prev) => ({
       ...prev,
-      [questionId]: {
-        questionId: questionId,
-        selectedOptionId: optionId,
-        gridInAnswer: null,
-      },
+      [questionId]: { questionId, selectedOptionId: optionId, gridInAnswer: null },
     }));
   };
 
-  // التعامل مع إدخال إجابة نصية / رقمية في أسئلة الـ GridIn
   const handleGridInChange = (questionId, val) => {
     setUserAnswers((prev) => ({
       ...prev,
-      [questionId]: {
-        questionId: questionId,
-        selectedOptionId: null,
-        gridInAnswer: val,
-      },
+      [questionId]: { questionId, selectedOptionId: null, gridInAnswer: val },
     }));
   };
 
-  // تسليم وتأكيد الاختبار وتجميع الداتا المطلوبة للـ API
-  const handleSubmitQuiz = async () => {
-    const confirmSubmit = window.confirm(
-      "Are you sure you want to submit your quiz?",
-    );
-    if (!confirmSubmit) return;
-
-    // تجميع الإجابات بالهيكل المطلوب تماماً من الباك إند
+  // Builds the exact body the backend expects and submits it
+  const submitQuiz = async () => {
+    setConfirming(false);
     const formattedAnswers = questionsList.map((q) => {
       const savedAns = userAnswers[q.id];
       return {
@@ -110,260 +104,162 @@ const Quiz = () => {
         gridInAnswer: savedAns?.gridInAnswer || null,
       };
     });
-
-    const payload = {
-      answers: formattedAnswers,
-    };
-
-    console.log("Submitting Payload via usePost:", payload);
+    const payload = { answers: formattedAnswers };
 
     try {
-      // استخدام postData وتمرير الـ payload والـ URL المخصص ورسالة النجاح للـ Toast
-      const result = await postData(
-        payload,
-        `/api/user/quizzes/${quizId}/submit`,
-        "Quiz submitted successfully!",
-      );
-
-      // الـ usePost يعيد الـ res.data مباشرة عند النجاح
-      if (result) {
-        // العودة لصفحة الـ ContentDetails بعد حل الاختبار بنجاح
-        navigate(-1);
-      }
+      const result = await postData(payload, `/api/user/quizzes/${quizId}/submit`, "Quiz submitted successfully!");
+      if (result) navigate(-1);
     } catch (err) {
-      // الـ usePost يقوم بعمل toast.error تلقائياً عند حدوث خطأ، فلا حاجة لكتابة alert هنا
+      // usePost already shows the error toast
       console.error("Submission error:", err);
     }
   };
+
+  const askSubmit = () => setConfirming(true);
+
+  // Options in their stored order, lettered A, B, C…
+  const options = [...(currentQuestion.options || [])].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  const meta = [
+    currentQuestion.difficulty ? `Difficulty ${currentQuestion.difficulty}` : "",
+    currentQuestion.year ? `${currentQuestion.month || ""} ${currentQuestion.year}`.trim() : "",
+    currentQuestion.questionType || "",
+  ].filter(Boolean).join(" · ");
+  const isLast = currentQuestionIndex >= totalQuestions - 1;
+
   return (
-    <div className="min-h-screen bg-gray-50/50 flex flex-col">
-      {/* Top Header navbar */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold text-gray-900">Quiz Assessment</h1>
-            <p className="text-xs text-gray-400">
-              Answer all questions carefully
-            </p>
-          </div>
+    <Page>
+      <button className="text-sm font-semibold text-slate-500 hover:text-one mb-4" onClick={() => navigate(-1)}>← Back</button>
+
+      {/* Quiz bar */}
+      <section className="rp-card mb-4 flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">Quiz · {answeredCount} of {totalQuestions} answered</p>
+          <p className="font-bold text-slate-900">Answer all questions carefully</p>
         </div>
-
-        <button
-          onClick={handleSubmitQuiz}
-          disabled={submitting}
-          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
-        >
-          <CheckCircle className="w-4 h-4" />
-          {submitting ? "Submitting..." : "Submit Quiz"}
+        <button className="pl-btn primary" onClick={askSubmit} disabled={submitting}>
+          {submitting ? "Submitting…" : "Submit quiz"}
         </button>
-      </div>
+      </section>
 
-      {/* Main Container */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Left Section: Question Card and Controls */}
-        <div className="lg:col-span-3 flex flex-col justify-between space-y-6">
-          {/* Question View Area */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex-1 flex flex-col justify-between">
-            <div>
-              {/* Question Meta tags */}
-              <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
-                <span className="px-2.5 py-1 font-medium bg-gray-100 text-gray-600 rounded-md">
-                  Question {currentQuestionIndex + 1} of {totalQuestions}
-                </span>
-                <span
-                  className={`px-2.5 py-1 font-medium rounded-md ${
-                    currentQuestion.difficulty === "A" ||
-                    currentQuestion.difficulty === "B"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-amber-50 text-amber-700"
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_16rem] gap-4 items-start">
+        {/* Question */}
+        <section className="rp-card min-w-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <p className="text-sm font-extrabold text-one">
+              Question {currentQuestionIndex + 1} <span className="text-slate-400 font-semibold">of {totalQuestions}</span>
+            </p>
+            {meta && <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{meta}</p>}
+          </div>
+
+          {currentQuestion.image && (
+            <img
+              src={currentQuestion.image}
+              alt={`Question ${currentQuestionIndex + 1}`}
+              className="max-w-full max-h-[300px] object-contain rounded-xl border border-slate-200 mb-4"
+            />
+          )}
+
+          <div className="text-base text-slate-900 leading-relaxed mb-5 break-words">
+            {cleanQuestionText(currentQuestion.question)}
+          </div>
+
+          {currentQuestion.answerType === "MCQ" ? (
+            <div className="grid gap-2" role="radiogroup" aria-label="Answer choices">
+              {options.map((option, i) => (
+                <ChoiceBtn
+                  key={option.id}
+                  letter={LETTERS[i] || option.order}
+                  label={option.answer}
+                  on={userAnswers[currentQuestion.id]?.selectedOptionId === option.id}
+                  onClick={() => handleOptionSelect(currentQuestion.id, option.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <label className="block max-w-xs">
+              <span className="text-xs font-bold text-slate-500">Your answer (grid-in)</span>
+              <input
+                type="text"
+                className="input mt-1 text-lg font-bold"
+                autoComplete="off"
+                value={userAnswers[currentQuestion.id]?.gridInAnswer || ""}
+                onChange={(e) => handleGridInChange(currentQuestion.id, e.target.value)}
+                placeholder="Enter value…"
+              />
+            </label>
+          )}
+
+          <div className="flex justify-between items-center gap-2 pt-5 mt-6 border-t border-slate-100">
+            <button
+              className="pl-btn"
+              onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
+              disabled={currentQuestionIndex === 0}
+              style={currentQuestionIndex === 0 ? { opacity: 0.45 } : undefined}
+            >
+              ← Previous
+            </button>
+            {!isLast ? (
+              <button className="pl-btn primary" onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}>Next →</button>
+            ) : (
+              <button className="pl-btn primary" onClick={askSubmit} disabled={submitting}>Finish quiz</button>
+            )}
+          </div>
+        </section>
+
+        {/* Navigator */}
+        <section className="rp-card">
+          <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-3">Questions</h3>
+          <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-5 gap-2 max-h-[350px] lg:max-h-none overflow-y-auto">
+            {questionsList.map((q, idx) => {
+              const current = idx === currentQuestionIndex;
+              const done = isAnswered(q);
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => setCurrentQuestionIndex(idx)}
+                  aria-label={`Question ${idx + 1}${done ? ", answered" : ""}`}
+                  aria-current={current ? "step" : undefined}
+                  className={`h-9 rounded-lg border text-xs font-bold transition-colors ${
+                    current
+                      ? "bg-one text-white border-one"
+                      : done
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : "bg-white text-slate-500 border-slate-200 border-dashed hover:border-slate-400"
                   }`}
                 >
-                  Difficulty: {currentQuestion.difficulty || "Medium"}
-                </span>
-                {currentQuestion.year && (
-                  <span className="px-2.5 py-1 font-medium bg-blue-50 text-blue-700 rounded-md flex items-center gap-1">
-                    <Calendar className="w-3 h-3" /> {currentQuestion.month}{" "}
-                    {currentQuestion.year}
-                  </span>
-                )}
-                <span className="px-2.5 py-1 font-medium bg-purple-50 text-purple-700 rounded-md">
-                  Type: {currentQuestion.questionType}
-                </span>
-              </div>
-
-              {/* Question Text */}
-              <div className="text-base sm:text-lg font-semibold text-gray-800 mb-6 leading-relaxed">
-                {cleanQuestionText(currentQuestion.question)}
-              </div>
-
-              {/* Question Optional Image */}
-              {currentQuestion.image && (
-                <div className="mb-6 max-w-full rounded-xl overflow-hidden border border-gray-100 bg-gray-50 p-2 flex justify-center">
-                  <img
-                    src={currentQuestion.image}
-                    alt={`Question ${currentQuestionIndex + 1}`}
-                    className="max-h-[300px] object-contain"
-                  />
-                </div>
-              )}
-
-              {/* Answers & Options Rendering */}
-              <div className="mt-4">
-                {currentQuestion.answerType === "MCQ" ? (
-                  // حقل الإجابة في حال كان نوع السؤال متعدد الاختيارات MCQ
-                  <div className="grid grid-cols-1 gap-3">
-                    {currentQuestion.options?.map((option) => {
-                      const isSelected =
-                        userAnswers[currentQuestion.id]?.selectedOptionId ===
-                        option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          onClick={() =>
-                            handleOptionSelect(currentQuestion.id, option.id)
-                          }
-                          className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all cursor-pointer ${
-                            isSelected
-                              ? "border-indigo-600 bg-indigo-50/50 shadow-sm"
-                              : "border-gray-200 hover:bg-gray-50"
-                          }`}
-                        >
-                          <div
-                            className={`w-7 h-7 flex items-center justify-center font-bold text-xs rounded-lg transition-colors ${
-                              isSelected
-                                ? "bg-indigo-600 text-white"
-                                : "bg-gray-100 text-gray-500"
-                            }`}
-                          >
-                            {option.order}
-                          </div>
-                          <span
-                            className={`text-sm font-medium ${isSelected ? "text-indigo-900" : "text-gray-700"}`}
-                          >
-                            {option.answer}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  // حقل الإجابة في حال كان نوع السؤال يدوي مقالي أو شبكي Grid-In
-                  <div className="max-w-md">
-                    <label className="block text-sm font-medium text-gray-500 mb-2">
-                      Type your answer here (Grid-In)
-                    </label>
-                    <input
-                      type="text"
-                      value={
-                        userAnswers[currentQuestion.id]?.gridInAnswer || ""
-                      }
-                      onChange={(e) =>
-                        handleGridInChange(currentQuestion.id, e.target.value)
-                      }
-                      placeholder="Enter value..."
-                      className="w-full p-3.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-semibold text-gray-800"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pagination Controls */}
-            <div className="flex justify-between items-center pt-6 border-t border-gray-100 mt-8">
-              <button
-                onClick={() =>
-                  setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))
-                }
-                disabled={currentQuestionIndex === 0}
-                className="inline-flex items-center gap-1 px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" /> Previous
-              </button>
-
-              {currentQuestionIndex < totalQuestions - 1 ? (
-                <button
-                  onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
-                  className="inline-flex items-center gap-1 px-5 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors cursor-pointer"
-                >
-                  Next <ChevronRight className="w-4 h-4" />
+                  {idx + 1}
                 </button>
-              ) : (
-                <button
-                  onClick={handleSubmitQuiz}
-                  disabled={submitting}
-                  className="inline-flex items-center gap-1 px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 rounded-xl transition-colors cursor-pointer"
-                >
-                  Finish Exam
-                </button>
-              )}
-            </div>
+              );
+            })}
           </div>
-        </div>
-
-        {/* Right Section: Quiz Navigator (Sidebar Grid) */}
-        <div className="lg:col-span-1">
-          <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm h-full flex flex-col">
-            <div className="flex items-center gap-2 pb-3 mb-4 border-b border-gray-100">
-              <FileText className="w-4 h-4 text-gray-400" />
-              <h3 className="text-sm font-bold text-gray-900">
-                Questions Grid
-              </h3>
-            </div>
-
-            {/* Grid of numbers */}
-            <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-4 gap-2 flex-1 content-start overflow-y-auto max-h-[350px] lg:max-h-[none] pr-1">
-              {questionsList.map((q, idx) => {
-                const isCurrent = idx === currentQuestionIndex;
-                const isAnswered =
-                  userAnswers[q.id]?.selectedOptionId ||
-                  userAnswers[q.id]?.gridInAnswer;
-
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => setCurrentQuestionIndex(idx)}
-                    className={`h-11 flex flex-col items-center justify-center text-xs font-bold rounded-xl transition-all border cursor-pointer ${
-                      isCurrent
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-100"
-                        : isAnswered
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
-                    }`}
-                  >
-                    <span>{idx + 1}</span>
-                    {isAnswered && !isCurrent && (
-                      <span className="w-1 h-1 bg-emerald-500 rounded-full mt-0.5" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Informative Legend */}
-            <div className="mt-6 pt-4 border-t border-gray-100 space-y-2 text-xs text-gray-500">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-indigo-600 rounded-sm" />
-                <span>Current Question</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-emerald-50 border border-emerald-200 rounded-sm" />
-                <span>Answered</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-gray-50 border border-gray-200 rounded-sm" />
-                <span>Not Answered</span>
-              </div>
-            </div>
+          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-1.5 text-xs text-slate-500">
+            <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-one"></span>Current question</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-50 border border-green-200"></span>Answered</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-white border border-dashed border-slate-300"></span>Not answered</span>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
+
+      {confirming && (
+        <Modal
+          title="Submit the quiz?"
+          onClose={() => setConfirming(false)}
+          actions={
+            <>
+              <button className="pl-btn" onClick={() => setConfirming(false)}>Keep working</button>
+              <button className="pl-btn primary" onClick={submitQuiz} disabled={submitting}>Submit</button>
+            </>
+          }
+        >
+          <p>
+            {unanswered > 0
+              ? <><b className="text-red-600">{unanswered} {unanswered === 1 ? "question is" : "questions are"} not answered.</b> </>
+              : "All questions answered. "}
+            Are you sure you want to submit your quiz?
+          </p>
+        </Modal>
+      )}
+    </Page>
   );
 };
 

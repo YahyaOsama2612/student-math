@@ -1,251 +1,157 @@
-import React, { useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Calendar,
-  Clock,
-  ExternalLink,
-  BookOpen,
-  RefreshCcw,
-  Video,
-  CheckCircle2,
-  ArrowRight,
-  Eye,
-} from "lucide-react";
-import useGet from "@/hooks/useGet";
-import usePost from "@/hooks/usePost";
-import Loading from "../../components/Loading";
+import api from "@/api/api";
+import { useStudentData } from "@/context/StudentData";
+import { CANCEL_WINDOW_MS, MON, WD_LONG, dateOf, fmtDay, startsAt, typeOf } from "@/lib/portal";
+import { EmptyCard, LiveStrip, Modal, Page, PageHead } from "@/components/portal/ui";
 
-// Import AOS
-import AOS from "aos";
-import "aos/dist/aos.css";
-
-const Upcoming = () => {
-  const navigate = useNavigate();
-  const { data, loading, error, refetch } = useGet(
-    "/api/user/sessions/upcoming",
-  );
-  const { postData, loading: joinLoading } = usePost();
-
-  // الأوقات (timeFrom/timeTo) جاية صح من الباك اند، فبنعرضها زي ما هي
-  // "11:30:00" -> "11:30 AM"
-  const formatUTCTimeToLocal = (timeStr) => {
-    if (!timeStr) return "";
-    const [h, m] = timeStr.split(":").map((v) => parseInt(v, 10));
-    const hours24 = h || 0;
-    const minutes = m || 0;
-    const period = hours24 >= 12 ? "PM" : "AM";
-    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
-    return `${String(hours12).padStart(2, "0")}:${String(minutes).padStart(
-      2,
-      "0",
-    )} ${period}`;
-  };
-
-  useEffect(() => {
-    AOS.init({
-      duration: 800,
-      once: true,
-      easing: "ease-out-quad",
-    });
-  }, []);
-  const handleJoin = async (session) => {
-    try {
-      await postData(
-        {},
-        `/api/user/sessions/${session.id}/join`,
-        "Joined successfully",
-      );
-
-      window.open(session.sessionLink, "_blank");
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  return (
-    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 font-sans text-slate-900">
-      {/* --- Header Section --- */}
-      <div className="mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div data-aos="fade-right">
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-            Upcoming <span className="text-one">Sessions</span>
-          </h1>
-          <p className="mt-2 text-slate-500 font-medium">
-            Manage your schedule and join your upcoming live classes.
-          </p>
-        </div>
-
-        <button
-          onClick={refetch}
-          disabled={loading}
-          className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-blue-200 transition-all shadow-sm active:scale-95 disabled:opacity-60"
-          data-aos="fade-left"
-        >
-          <RefreshCcw
-            size={18}
-            className={`${loading ? "animate-spin" : "group-hover:rotate-180"} transition-transform duration-500`}
-          />
-          Refresh Schedule
-        </button>
-      </div>
-
-      {/* --- Status Handlers --- */}
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-24">
-          <Loading />
-          <p className="mt-4 text-slate-400 animate-pulse">
-            Fetching your sessions...
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <div
-          className="max-w-md mx-auto p-6 bg-red-50 border border-red-100 rounded-3xl text-center"
-          data-aos="zoom-in"
-        >
-          <p className="text-red-600 font-semibold">{error}</p>
-          <button
-            onClick={refetch}
-            className="mt-3 text-red-500 underline text-sm"
-          >
-            Try again
-          </button>
-        </div>
-      )}
-
-      {/* --- Main Content --- */}
-      {data?.success && data.data.length > 0 ? (
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {data.data.map((session, index) => (
-            <div
-              key={session.id}
-              data-aos="fade-up"
-              data-aos-delay={index * 100}
-              className="group relative bg-white border border-slate-100 rounded-[32px] p-6 shadow-sm hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1 transition-all duration-300 flex flex-col"
-            >
-              {/* Top Row: Icon & Badge */}
-              <div className="flex justify-between items-start mb-6">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300">
-                  <Video size={24} />
-                </div>
-                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                  Confirmed
-                </div>
-              </div>
-
-              {/* Session Info */}
-              <div className="mb-6">
-                <h3 className="text-xl font-bold text-slate-800 mb-4 group-hover:text-blue-600 transition-colors">
-                  {session.name}
-                </h3>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-slate-500">
-                    <div className="p-1.5 bg-slate-50 rounded-lg">
-                      <Calendar size={16} />
-                    </div>
-                    <span className="text-sm font-medium">
-                      {new Date(session.sessionDate).toLocaleDateString(
-                        "en-US",
-                        {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                          timeZone: "UTC",
-                        },
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-slate-500">
-                    <div className="p-1.5 bg-slate-50 rounded-lg">
-                      <Clock size={16} />
-                    </div>
-                    <span className="text-sm font-medium">
-                      {formatUTCTimeToLocal(session.timeFrom)} — {formatUTCTimeToLocal(session.timeTo)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Lessons Box */}
-              <div className="bg-slate-50/80 rounded-2xl p-4 mb-8 flex-grow">
-                <div className="flex items-center gap-2 mb-3 text-slate-700">
-                  <BookOpen size={16} className="text-blue-500" />
-                  <span className="text-xs font-bold uppercase tracking-widest">
-                    Included Lessons
-                  </span>
-                </div>
-                <ul className="space-y-2.5">
-                  {session.lessons?.map((lesson) => (
-                    <li
-                      key={lesson.id}
-                      className="flex items-start justify-between gap-2 text-sm text-slate-600"
-                    >
-                      <div className="flex items-start gap-2">
-                        <CheckCircle2
-                          size={14}
-                          className="text-emerald-500 mt-0.5 shrink-0"
-                        />
-                        <div>
-                          <span className="font-semibold block leading-tight">
-                            {lesson.name}
-                          </span>
-                          <span className="text-[11px] text-slate-400 capitalize">
-                            {lesson.course?.name} • {lesson.chapter?.name}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/user/lesson/${lesson.id}`, {
-                            state: { fromPurchases: true },
-                          });
-                        }}
-                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100"
-                      >
-                        <Eye size={14} />
-                        Material
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* CTA Button */}
-              <button
-                onClick={() => handleJoin(session)}
-                disabled={joinLoading}
-                className="mt-auto flex items-center justify-center gap-2 w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-200 transition-all active:scale-[0.98] disabled:opacity-60"
-              >
-                {joinLoading ? "Joining..." : "Join Session Now"}
-                <ArrowRight size={18} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        !loading && (
-          <div
-            className="flex flex-col items-center justify-center py-32 text-center"
-            data-aos="fade-up"
-          >
-            <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-              <Calendar className="text-slate-300" size={32} />
-            </div>
-            <h3 className="text-xl font-bold text-slate-800">
-              No Sessions Found
-            </h3>
-            <p className="text-slate-500 max-w-xs mx-auto mt-2">
-              Your schedule is currently clear. Check back later for new
-              updates.
-            </p>
-          </div>
-        )
-      )}
-    </div>
-  );
+const fmtLeft = (ms) => {
+  const h = Math.floor(ms / 3600000);
+  const d = Math.floor(h / 24);
+  return d >= 1 ? `${d} day${d === 1 ? "" : "s"} ${h % 24} h` : `${h} h ${Math.floor((ms % 3600000) / 60000)} min`;
 };
 
-export default Upcoming;
+function CancelModal({ s, onClose }) {
+  const { requestCancel, showToast } = useStudentData();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const left = startsAt(s) - Date.now() - CANCEL_WINDOW_MS;
+
+  const send = async () => {
+    if (reason.trim().length < 5) { setError("Write a short reason (at least 5 characters)"); return; }
+    setSending(true);
+    try {
+      await requestCancel(s.id, reason.trim());
+      showToast("Request sent — the admin will reply");
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.error?.message || "Could not send the request");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal
+      wide
+      title="Ask to cancel this session"
+      onClose={onClose}
+      actions={<>
+        <button className="pl-btn" onClick={onClose}>Keep the session</button>
+        <button className="pl-btn primary" onClick={send} disabled={sending}>{sending ? "Sending…" : "Send request"}</button>
+      </>}
+    >
+      <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 mb-3">
+        <p className="font-bold text-slate-900">{s.topic}</p>
+        <p className="text-xs text-slate-500">{fmtDay(s.iso)} · {s.time} · {s.teacher}</p>
+      </div>
+      <p className="text-xs text-slate-500 mb-3">You can ask until <b>24 hours before</b> it starts — <b>{fmtLeft(Math.max(0, left))}</b> left. The admin approves or declines it.</p>
+      <label className="text-xs font-bold" htmlFor="cx-reason">Reason <span className="text-red-500">*</span></label>
+      <textarea id="cx-reason" rows={3} autoFocus className="input mt-1" placeholder="e.g. School exam that day" value={reason} onChange={(e) => { setReason(e.target.value); setError(""); }}></textarea>
+      {error && <p className="text-sm font-semibold text-red-600 mt-2">{error}</p>}
+    </Modal>
+  );
+}
+
+function CancelButton({ s, onAsk }) {
+  const { cancelRequestFor } = useStudentData();
+  const c = cancelRequestFor(s.id);
+  if (c?.status === "pending") return <span className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap text-center" title="Waiting for the admin">Cancel requested</span>;
+  const left = startsAt(s) - Date.now();
+  if (left < CANCEL_WINDOW_MS) return <button className="btn-mini" disabled style={{ opacity: 0.45 }} title="Cancelling closes 24 hours before the session">Cancel closed</button>;
+  return <button className="btn-mini" onClick={onAsk} title={`You can ask to cancel until 24 hours before — ${fmtLeft(left - CANCEL_WINDOW_MS)} left`}>Request cancel</button>;
+}
+
+export default function Upcoming() {
+  const { upcoming, loading, cancelRequestFor, showToast } = useStudentData();
+  const navigate = useNavigate();
+  const [cancelling, setCancelling] = useState(null);
+  const [joining, setJoining] = useState(null);
+
+  const join = async (s) => {
+    setJoining(s.id);
+    try {
+      const res = await api.post(`/api/user/sessions/${s.id}/join`, {});
+      const link = res?.data?.data?.sessionLink || s.link;
+      if (link) window.open(link, "_blank", "noopener");
+    } catch (err) {
+      showToast(err?.response?.data?.error?.message || "Could not join the session");
+    } finally {
+      setJoining(null);
+    }
+  };
+
+  const groups = [];
+  upcoming.forEach((s) => {
+    const g = groups[groups.length - 1];
+    if (g && g.iso === s.iso) g.items.push(s);
+    else groups.push({ iso: s.iso, items: [s] });
+  });
+
+  return (
+    <Page>
+      <PageHead title="Upcoming sessions" text="Your booked sessions. Meeting links appear once your teacher adds them. You can ask to cancel up to 24 hours before a session.">
+        <button className="btn-ghost" onClick={() => navigate("/user/availability-plans")}>My study plans</button>
+      </PageHead>
+      <LiveStrip />
+
+      {loading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="skel h-20"></div>)}</div>
+      ) : groups.length ? groups.map((g) => {
+        const d = dateOf(g.iso);
+        return (
+          <div key={g.iso} className="mb-6">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-sm font-extrabold text-gray-900">{WD_LONG[d.getDay()]}, {MON[d.getMonth()]} {d.getDate()}</span>
+              <span className="flex-grow h-px bg-slate-200"></span>
+              <span className="text-xs font-semibold text-slate-400">{g.items.length} session{g.items.length > 1 ? "s" : ""}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {g.items.map((s) => {
+                const t = typeOf(s.type);
+                const c = cancelRequestFor(s.id);
+                return (
+                  <div key={s.id} className={`bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-4 relative overflow-hidden ${s.cancelled ? "opacity-70" : ""}`}>
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: s.cancelled ? "#cbd5e1" : t.color }}></div>
+                    <div className="pl-2 md:w-44 shrink-0">
+                      <p className="text-xs font-bold text-gray-500">{s.time}</p>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded" style={{ color: t.color, background: t.bg }}>{t.label}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className={`font-bold ${s.cancelled ? "text-gray-400 line-through" : "text-gray-900"}`}>{s.topic}</h4>
+                      <p className="text-xs text-gray-500">{s.sub}{s.course && <> · <span className="text-one font-semibold">{s.course}</span></>}</p>
+                      {s.cancelled && <p className="text-xs font-semibold text-red-600 mt-1">Cancelled{s.cancelReason ? `: ${s.cancelReason}` : ""}</p>}
+                      {c?.status === "rejected" && <p className="text-[11px] text-red-600 font-semibold mt-1">Cancel declined{c.adminReply ? `: ${c.adminReply}` : ""}</p>}
+                    </div>
+                    <div className="md:text-right md:w-36">
+                      <p className="text-sm font-bold text-gray-900">{s.teacher}</p>
+                      <p className="text-[10px] text-gray-400">Teacher</p>
+                    </div>
+                    <div className="flex flex-wrap md:flex-col gap-1.5 md:w-36 shrink-0">
+                      {s.cancelled ? <span className="text-xs font-bold text-slate-400">No action needed</span> : (
+                        <>
+                          {s.link
+                            ? <button className="btn-mini primary" onClick={() => join(s)} disabled={joining === s.id}>{joining === s.id ? "Joining…" : "Join session"}</button>
+                            : <button className="btn-mini" disabled style={{ opacity: 0.55 }} title="The teacher adds the meeting link before the session">Join (link soon)</button>}
+                          <CancelButton s={s} onAsk={() => setCancelling(s)} />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }) : (
+        <EmptyCard
+          title="No upcoming sessions yet"
+          text="Approve your study plan and its sessions show up here."
+          action={<button onClick={() => navigate("/user/availability-plans")} className="btn-primary" style={{ width: "auto", margin: "0 auto" }}>Go to my plan</button>}
+        />
+      )}
+      {cancelling && <CancelModal s={cancelling} onClose={() => setCancelling(null)} />}
+    </Page>
+  );
+}

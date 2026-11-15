@@ -2,11 +2,16 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+@import "./styles/portal.css" layer(components);
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
   --color-one: #7d0a0a;
+  --color-one-dark: #5a0707;
+  --color-one-light: #a31212;
+  --color-page: #f8fafc;
+  --color-logo: #b91c1c;
   --color-two: #eeeeee;
   --color-three: #ead196;
   --color-four: #bf3131;
@@ -127,7 +132,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply font-sans bg-background text-foreground;
+    @apply font-sans bg-page text-slate-800 antialiased;
   }
   html {
     @apply font-sans;

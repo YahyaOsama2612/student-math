@@ -1,156 +1,103 @@
-import React from "react";
-import {
-  CreditCard,
-  Wallet,
-  ShoppingBag,
-  FileSearch,
-  BarChart,
-  Clock,
-  FileText,
-  TicketPercent,
-  CalendarClock,
-  Book,
-} from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { SiCoursera } from "react-icons/si";
+import { useStudentData } from "@/context/StudentData";
+import { relDay, fmtTime, typeOf } from "@/lib/portal";
+import Icon from "@/components/portal/Icon";
+import { LiveStrip } from "@/components/portal/ui";
 
-// 1. مصفوفة البيانات: فصلنا الداتا عن الـ UI عشان لو حبيت تزود كارت رابع يكون في ثانية
-const mainFeatures = [
-  {
-    title: "Payments",
-    description: "Manage your transactions and check your balance easily",
-    MainIcon: CreditCard,
-    buttons: [
-      { label: "Buy Purchases", icon: CreditCard, path: "/user/payment" },
-      { label: "History", icon: Clock, path: "/user/mypurchases" },
-    ],
-  },
-  {
-    title: "Attend",
-    // تم تعديل الوصف ليتناسب مع الحضور بدلاً من المعاملات المالية
-    description:
-      "Track your upcoming sessions and review your attendance history",
-    MainIcon: ShoppingBag,
-    buttons: [
-      { label: "Upcoming", icon: BarChart, path: "/user/upcoming" },
-      { label: "History", icon: Clock, path: "/user/history" },
-    ],
-  },
-  {
-    title: "Exams",
-    description: "Take exams, evaluate your level, and track your performance",
-    MainIcon: FileSearch,
-    buttons: [
-      { label: "Exam", icon: FileText, path: "/user/exams" },
-      { label: "Diagnostic Exam", icon: BarChart, path: "/user/diagnostic" },
-    ],
-  },
-  {
-    title: "Availability Plans",
-    description:
-      "Share the times you are available and follow up on proposed sessions",
-    MainIcon: CalendarClock,
-    buttons: [
-      {
-        label: "Manage Availability",
-        icon: CalendarClock,
-        path: "/user/availability-plans",
-      },
-    ],
-  },
-  {
-    title: "Promo Code",
-    description:
-      "Check the latest promo codes and offers to save on your purchases",
-    MainIcon: TicketPercent,
-    buttons: [
-      { label: "Promo Code", icon: TicketPercent, path: "/user/promo" },
-    ],
-  },
-  {
-    title: "Remaining Homework",
-    description:
-      "Check your remaining balance and manage your funds",
-    MainIcon: Book,
-    buttons: [
-      { label: "Remaining Homework", icon: Book, path: "/user/remaining" },
-    ],
-  },
-  {
-    title: "Reports",
-    description:
-      "Review your quiz, exam, and diagnostic performance reports and mistakes",
-    MainIcon: FileText,
-    buttons: [
-      { label: "Reports Hub", icon: BarChart, path: "/user/reports" },
-    ],
-  },
+function Hero() {
+  const { profile, upcoming, nextSession, homework, plansWaiting } = useStudentData();
+  const navigate = useNavigate();
+  const h = new Date().getHours();
+  const hello = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const first = (profile?.fullName || "").trim().split(/\s+/)[0];
+  const live = Number(profile?.livebalance ?? 0);
+  const wallet = Number(profile?.wallet?.balance ?? 0);
+  const up = nextSession;
+  const stat = (n, label, to) => (
+    <button onClick={() => navigate(to)} className="s-stat">
+      <p className="text-2xl font-extrabold leading-none">{n}</p>
+      <p className="text-[11px] text-white/75 mt-1.5 font-semibold">{label}</p>
+    </button>
+  );
+
+  return (
+    <section className="s-hero rounded-2xl text-white shadow-xl relative overflow-hidden mb-6">
+      <div className="absolute -right-12 -top-20 w-72 h-72 rounded-full bg-white/10"></div>
+      <div className="absolute right-24 -bottom-24 w-52 h-52 rounded-full bg-white/5"></div>
+      <div className="relative p-5 sm:p-7 grid grid-cols-1 lg:grid-cols-5 gap-6 items-center">
+        <div className="lg:col-span-3 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-white/70">{hello} · {today}</p>
+            {profile?.nickname && <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-white/15 border border-white/25" title="Your nickname">{profile.nickname}</span>}
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1">{first ? `Welcome back, ${first}` : "Welcome back to MathPortal"}</h1>
+          {up ? (
+            <div className="mt-4 bg-white/10 border border-white/20 rounded-xl p-4">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-white/60">Next session · {relDay(up.iso)}, {fmtTime(up.start)}</p>
+              <p className="text-lg font-bold mt-1 truncate">{up.topic}</p>
+              <p className="text-sm text-white/75 truncate">{[up.course, typeOf(up.type).label, up.teacher].filter(Boolean).join(" · ")}</p>
+            </div>
+          ) : (
+            <p className="text-white/80 text-sm mt-3 max-w-lg">You have no sessions booked yet. Share the times you’re free and the admin will propose a study plan.</p>
+          )}
+          <div className="flex flex-wrap gap-2 mt-5">
+            {up
+              ? <button onClick={() => navigate("/user/upcoming")} className="s-hero-btn solid">My upcoming sessions →</button>
+              : <button onClick={() => navigate("/user/availability-plans")} className="s-hero-btn solid">Share my free times →</button>}
+            <button onClick={() => navigate("/user/reports/quizzes")} className="s-hero-btn ghost">My reports</button>
+            <button onClick={() => navigate("/user/payment")} className="s-hero-btn ghost">Store</button>
+            <button onClick={() => navigate("/user/wallet")} className="s-hero-btn ghost"><Icon name="wallet" size={16} /> Wallet · {wallet.toLocaleString("en-US")} EGP</button>
+          </div>
+        </div>
+        <div className="lg:col-span-2 grid grid-cols-2 gap-2.5">
+          {stat(live, "Live sessions left", "/user/upcoming")}
+          {stat(upcoming.filter((s) => !s.cancelled).length, "Upcoming sessions", "/user/upcoming")}
+          {stat(homework.quizzes + homework.extra, "Homework to do", "/user/remaining")}
+          {stat(plansWaiting, "Plans to review", "/user/availability-plans")}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const CARDS = [
+  { key: "store", icon: "store", title: "Store", text: "Courses, chapters, lessons and session packages", buttons: [["store", "Open Store", "/user/payment"], ["purchases", "My Purchases", "/user/mypurchases"]] },
+  { key: "attend", icon: "upcoming", title: "Attend", text: "Track your upcoming sessions and review your attendance history", strip: true, buttons: [["reports", "Upcoming", "/user/upcoming"], ["history", "History", "/user/history"]] },
+  { key: "exams", icon: "exam", title: "Exams", text: "Take exams, evaluate your level, and track your performance", buttons: [["exam", "Exam", "/user/exams"], ["diagnose", "Diagnose", "/user/diagnostic"]] },
+  { key: "plans", icon: "plans", title: "Availability Plans", text: "Share the times you are available and follow up on proposed sessions", buttons: [["plans", "Manage Availability", "/user/availability-plans"]] },
+  { key: "promo", icon: "ticket", title: "Promo Code", text: "Check the latest promo codes and offers to save on your purchases", buttons: [["ticket", "Promo Code", "/user/promo"]] },
+  { key: "homework", icon: "homework", title: "Remaining H.W", text: "Solve your homework and quizzes, and see what is still left to do", buttons: [["homework", "Remaining Homework", "/user/remaining"]] },
+  { key: "reports", icon: "grid", title: "Reports", text: "Quiz, exam and diagnostic reports with your mistakes to review", buttons: [["grid", "My Reports", "/user/reports/quizzes"]] },
 ];
 
-// 2. Component مخصص للكروت الرئيسية لمنع التكرار
-const ActionCard = ({ title, description, MainIcon, buttons, navigate }) => {
-  return (
-    <Card className="p-6 bg-white/20 backdrop-blur-lg border border-white/20 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 group hover:scale-[1.02]">
-      {/* استخدمنا h-full هنا عشان لو الوصف طوله اختلف، الزراير تفضل متساوية تحت */}
-      <div className="flex flex-col gap-6 h-full">
-        <div className="w-16 h-16 flex items-center justify-center bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-sm border border-white/30 rounded-3xl group-hover:scale-110 transition-transform duration-300">
-          <MainIcon className="text-one w-8 h-8" />
-        </div>
-
-        <div className="space-y-2 flex-grow">
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900">
-            {title}
-          </h2>
-          <p className="text-sm text-gray-600">{description}</p>
-        </div>
-
-        {/* mt-auto بتزق الزراير لآخر الكارت دايماً */}
-        <div className="flex flex-col gap-4 mt-auto">
-          {buttons.map((btn, idx) => (
-            <button
-              key={idx}
-              onClick={() => navigate(btn.path)}
-              className="flex items-center justify-center gap-3 bg-gradient-to-r from-one to-one/80 text-white px-5 py-3 rounded-2xl font-semibold hover:scale-95 active:scale-95 transition-all shadow-lg hover:shadow-2xl"
-            >
-              <btn.icon size={20} />
-              <span>{btn.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </Card>
-  );
-};
-
-const Home = () => {
+export default function Home() {
   const navigate = useNavigate();
-
   return (
-    // ضفنا max-w-7xl عشان الصفحة متبقاش ممطوطة جداً في الشاشات العملاقة
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* رسم الكروت الرئيسية بشكل ديناميكي */}
-        {mainFeatures.map((feature, index) => (
-          <ActionCard key={index} {...feature} navigate={navigate} />
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+      <Hero />
+      <div className="flex items-end justify-between gap-3 mb-3 mt-1">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Quick access</h3>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 lg:gap-5">
+        {CARDS.map((c) => (
+          <section key={c.key} className="card p-5">
+            <div className="flex flex-col gap-4 h-full">
+              <div className="card-top"><div className="icon-tile text-one"><Icon name={c.icon} size={24} /></div></div>
+              {c.strip && <LiveStrip compact />}
+              <div className="space-y-2 flex-grow">
+                <h2 className="text-lg font-extrabold tracking-tight text-gray-900">{c.title}</h2>
+                <p className="text-sm text-gray-600">{c.text}</p>
+              </div>
+              <div className="flex flex-col gap-2.5 mt-auto">
+                {c.buttons.map(([icon, label, to]) => (
+                  <button key={label} className="btn-light" onClick={() => navigate(to)}><Icon name={icon} size={20} /><span>{label}</span></button>
+                ))}
+              </div>
+            </div>
+          </section>
         ))}
-
-
-
-
       </div>
     </div>
   );
-};
-
-// 3. إصلاح الـ Card Component: ضفنا className عشان يقبل الكلاسات اللي بتتبعتله ويدمجها
-const Card = ({ children, className = "" }) => {
-  return (
-    <div
-      className={`bg-white rounded-2xl shadow-md p-4 min-h-[150px] hover:shadow-xl transition ${className}`}
-    >
-      {children}
-    </div>
-  );
-};
-
-export default Home;
+}

@@ -1,36 +1,21 @@
-import React, { useMemo } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
-import ReportsTabsHeader from "./ReportsTabsHeader";
+import React from "react";
+import { useLocation } from "react-router-dom";
+import { reportTabFor } from "./ReportsTabsHeader";
 import QuizReports from "./QuizReports";
 import ExamReportsView from "./ExamReportsView";
 
 /**
- * Unified Reports container supporting all 3 reports with their own designs:
- * 1. Quiz Reports (/user/reports/quizzes or /user/reports)
- * 2. Exam Reports (/user/reports/exams)
- * 3. Diagnostic Exam Reports (/user/reports/diagnostic-exam)
+ * Reports entry (/user/reports). The route has no :type param, so the view is
+ * picked from the pathname — /user/reports itself shows Subjects (quiz reports).
+ * /user/reports/quizzes, /exams and /diagnostic-exam have their own routes.
  */
 const Reports = () => {
-  const { type } = useParams();
-  const location = useLocation();
+  const { pathname } = useLocation();
+  const tab = reportTabFor(pathname);
 
-  const activeTab = useMemo(() => {
-    if (type === "exams") return "exams";
-    if (type === "diagnostic-exam" || type === "diagnostic") return "diagnostic";
-    if (type === "quizzes") return "quizzes";
-
-    if (location.pathname.includes("/diagnostic-exam")) return "diagnostic";
-    if (location.pathname.includes("/exams")) return "exams";
-    return "quizzes";
-  }, [type, location.pathname]);
-
-  return (
-    <div>
-      {activeTab === "quizzes" && <QuizReports hideHeaderTab={false} />}
-      {activeTab === "exams" && <ExamReportsView kind="exam" hideHeaderTab={false} />}
-      {activeTab === "diagnostic" && <ExamReportsView kind="diagnostic" hideHeaderTab={false} />}
-    </div>
-  );
+  if (tab === "exams") return <ExamReportsView kind="exam" />;
+  if (tab === "diagnostic") return <ExamReportsView kind="diagnostic" />;
+  return <QuizReports />;
 };
 
 export default Reports;

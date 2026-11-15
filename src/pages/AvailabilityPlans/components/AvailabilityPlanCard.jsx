@@ -1,13 +1,11 @@
 import { useState } from "react";
-import {
-  CalendarClock,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  Pencil,
-  X,
-} from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import api from "@/api/api";
+import Icon from "@/components/portal/Icon";
+import { TeacherAvatar, TypeDot } from "@/components/portal/ui";
+import { typeOf } from "@/lib/portal";
+
+const PLANS_URL = "/api/user/availability-plans";
 
 /* ------------------------------------------------------------------ */
 /* Formatters                                                          */
@@ -20,6 +18,7 @@ export const formatPlanStatus = (status = "") =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ") || "Unknown";
 
+/** "17:00:00" → "05:00 PM" */
 export const formatPlanTime = (time) => {
   if (!time) return "";
   const [hourText, minuteText] = String(time).split(":");
@@ -35,66 +34,44 @@ const isValidDate = (value) =>
 // "Oct 28"
 export const formatShortDate = (value) =>
   isValidDate(value)
-    ? new Date(value).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
+    ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
     : "";
 
 // "Wed, Oct 28" (UTC so the day never shifts)
 export const formatDay = (value) =>
   isValidDate(value)
     ? new Date(value).toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    })
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      })
     : value || "";
 
 /* ------------------------------------------------------------------ */
-/* Status                                                              */
+/* Status (design: ST_PILL → st-pill)                                  */
 /* ------------------------------------------------------------------ */
 
+// [label, text colour, background, border]
 export const PLAN_STATUS = {
-  pending_admin_review: {
-    label: "Waiting for admin",
-    fg: "#1d4ed8",
-    bg: "#eff6ff",
-    bd: "#bfdbfe",
-  },
-  pending_student_response: {
-    label: "Awaiting your approval",
-    fg: "#b45309",
-    bg: "#fffbeb",
-    bd: "#fde68a",
-  },
-  accepted: { label: "Active", fg: "#15803d", bg: "#f0fdf4", bd: "#bbf7d0" },
-  rejected: {
-    label: "Changes requested",
-    fg: "#b91c1c",
-    bg: "#fef2f2",
-    bd: "#fecaca",
-  },
+  pending_admin_review: ["Waiting for admin", "#1d4ed8", "#eff6ff", "#bfdbfe"],
+  pending_student_response: ["Awaiting your approval", "#b45309", "#fffbeb", "#fde68a"],
+  accepted: ["Active", "#15803d", "#f0fdf4", "#bbf7d0"],
+  rejected: ["Changes requested", "#b91c1c", "#fef2f2", "#fecaca"],
+  cancelled: ["Cancelled", "#475569", "#f1f5f9", "#e2e8f0"],
 };
 
 export const StatusPill = ({ status }) => {
-  const meta = PLAN_STATUS[status] || {
-    label: formatPlanStatus(status),
-    fg: "#475569",
-    bg: "#f1f5f9",
-    bd: "#e2e8f0",
-  };
+  const [label, fg, bg, bd] = PLAN_STATUS[status] || [
+    formatPlanStatus(status),
+    "#475569",
+    "#f1f5f9",
+    "#e2e8f0",
+  ];
   return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold"
-      style={{ color: meta.fg, backgroundColor: meta.bg, borderColor: meta.bd }}
-    >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: meta.fg }}
-      />
-      {meta.label}
+    <span className="st-pill" style={{ color: fg, background: bg, borderColor: bd }}>
+      <span className="st-dot" style={{ background: fg }}></span>
+      {label}
     </span>
   );
 };
@@ -102,15 +79,19 @@ export const StatusPill = ({ status }) => {
 // The student can answer once the admin has proposed sessions.
 export const canRespondTo = (plan) =>
   Boolean(plan) &&
-  !/accepted|rejected/i.test(plan.status || "") &&
+  !/accepted|rejected|cancelled/i.test(plan.status || "") &&
   Boolean(
     plan.proposedAt ||
-    plan.proposedSessions?.length > 0 ||
-    /student.*response|response.*student|proposed/i.test(plan.status || ""),
+      plan.proposedSessions?.length > 0 ||
+      /student.*response|response.*student|proposed/i.test(plan.status || ""),
   );
 
+// The backend refuses edits to accepted or cancelled plans.
+export const canEditPlan = (plan) =>
+  Boolean(plan) && !["accepted", "cancelled"].includes(plan.status);
+
 /* ------------------------------------------------------------------ */
-/* Stepper: Save time slots → Admin reviews → Approve → Upcoming       */
+/* Stepper (design: stepperHtml)                                       */
 /* ------------------------------------------------------------------ */
 
 export const PlanStepper = ({ plan }) => {
@@ -120,19 +101,12 @@ export const PlanStepper = ({ plan }) => {
   const steps = [
     {
       title: "Save time slots",
-      sub: plan
-        ? `Sent ${formatShortDate(plan.createdAt) || ""}`.trim()
-        : "Your turn",
+      sub: plan ? `Sent ${formatShortDate(plan.createdAt) || ""}`.trim() : "Your turn",
       state: plan ? "done" : "now",
     },
     {
       title: "Admin reviews",
-      sub:
-        s === "pending_admin_review"
-          ? "Waiting for admin"
-          : proposed
-            ? "Plan proposed"
-            : "—",
+      sub: s === "pending_admin_review" ? "Waiting for admin" : proposed ? "Plan proposed" : "—",
       state: s === "pending_admin_review" ? "now" : proposed ? "done" : "idle",
     },
     {
@@ -161,7 +135,7 @@ export const PlanStepper = ({ plan }) => {
     },
   ];
 
-  const box = {
+  const ring = {
     now: "border-amber-300 ring-2 ring-amber-100",
     warn: "border-red-200 ring-2 ring-red-50",
     done: "border-slate-200",
@@ -175,30 +149,26 @@ export const PlanStepper = ({ plan }) => {
   };
 
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
       {steps.map((step, index) => (
         <div
           key={step.title}
-          className={`flex items-center gap-3 rounded-2xl border bg-white p-4 ${box[step.state]}`}
+          className={`bg-white border ${ring[step.state]} rounded-2xl p-4 flex items-center gap-3 min-w-0`}
         >
           <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold ${dot[step.state]}`}
+            className={`w-8 h-8 rounded-full ${dot[step.state]} font-extrabold text-sm flex items-center justify-center shrink-0`}
           >
             {step.state === "done" ? (
-              <Check size={16} strokeWidth={3} />
+              <Icon name="check" size={16} />
             ) : step.state === "warn" ? (
-              <X size={16} strokeWidth={3} />
+              <Icon name="x" size={16} />
             ) : (
               index + 1
             )}
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-extrabold text-gray-900">
-              {step.title}
-            </span>
-            <span className="block truncate text-[11px] text-slate-400">
-              {step.sub}
-            </span>
+            <span className="block text-sm font-extrabold text-gray-900">{step.title}</span>
+            <span className="block text-[11px] text-slate-400 truncate">{step.sub}</span>
           </span>
         </div>
       ))}
@@ -207,18 +177,10 @@ export const PlanStepper = ({ plan }) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Slots grouped by day                                                */
+/* Slots grouped by day (read-only; week starts Saturday)              */
 /* ------------------------------------------------------------------ */
 
-const WEEK = [
-  "Saturday",
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-];
+export const WEEK = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 export const SlotsGrid = ({ slots = [] }) => {
   const byDay = WEEK.map((day) => ({
@@ -228,20 +190,15 @@ export const SlotsGrid = ({ slots = [] }) => {
       .sort((a, b) => String(a.timeFrom).localeCompare(String(b.timeFrom))),
   })).filter((group) => group.items.length);
 
-  if (!byDay.length) {
-    return <p className="text-sm text-slate-400">No times added.</p>;
-  }
+  if (!byDay.length) return <p className="text-sm text-slate-400">No times added.</p>;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {byDay.map(({ day, items }) => (
-        <div
-          key={day}
-          className="rounded-xl border border-red-200 bg-red-50/30 p-4"
-        >
-          <p className="mb-2 flex items-center justify-between border-b border-slate-200 pb-2 text-sm font-bold text-gray-800">
+        <div key={day} className="border border-red-200 bg-red-50/30 rounded-xl p-4">
+          <p className="font-bold text-sm text-gray-800 mb-2 pb-2 border-b border-slate-200 flex justify-between items-center">
             {day}
-            <span className="text-[11px] font-semibold text-slate-400">
+            <span className="text-[11px] text-slate-400 font-semibold">
               {items.length} {items.length === 1 ? "slot" : "slots"}
             </span>
           </p>
@@ -249,9 +206,9 @@ export const SlotsGrid = ({ slots = [] }) => {
             {items.map((slot) => (
               <span
                 key={slot.id || `${slot.dayOfWeek}-${slot.timeFrom}`}
-                className="inline-flex items-center gap-2 text-[13px] text-gray-700"
+                className="flex items-center gap-2 text-[13px] text-gray-700"
               >
-                <Clock3 size={14} className="text-one" />
+                <Icon name="clock" size={14} className="text-one" />
                 {formatPlanTime(slot.timeFrom)} – {formatPlanTime(slot.timeTo)}
               </span>
             ))}
@@ -263,7 +220,7 @@ export const SlotsGrid = ({ slots = [] }) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Proposed sessions table                                             */
+/* Proposed sessions (design: pl-table / pl-row, read-only)            */
 /* ------------------------------------------------------------------ */
 
 const sessionTitle = (session, index) =>
@@ -276,24 +233,12 @@ const sessionTitle = (session, index) =>
 const sessionDateText = (session) =>
   session.sessionDate
     ? formatDay(session.sessionDate)
-    : [formatDay(session.startDate), formatDay(session.endDate)]
-      .filter(Boolean)
-      .join(" – ");
+    : [formatDay(session.startDate), formatDay(session.endDate)].filter(Boolean).join(" – ");
 
 const sessionTimeText = (session) =>
   [session.timeFrom && formatPlanTime(session.timeFrom), session.timeTo && formatPlanTime(session.timeTo)]
     .filter(Boolean)
     .join(" – ");
-
-const initials = (name = "") => {
-  const words = String(name)
-    .replace(/^(Mr|Ms|Mrs|Dr)\.?\s*/i, "")
-    .split(/\s+/)
-    .filter(Boolean);
-  return (
-    words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2)
-  ).toUpperCase();
-};
 
 export const sessionsRange = (sessions = []) => {
   const dates = sessions
@@ -306,159 +251,109 @@ export const sessionsRange = (sessions = []) => {
   return first === last ? first : `${first} – ${last}`;
 };
 
-const ROW_GRID =
-  "md:grid-cols-[120px_150px_minmax(0,1fr)_170px_110px] md:items-center md:gap-4";
+// Per-session answer saved by the backend (studentResponse), else the plan's.
+const sessionState = (session, status) => {
+  if (session.studentResponse === "rejected") return "skipped";
+  if (session.studentResponse === "accepted" || status === "accepted") return "scheduled";
+  if (status === "rejected") return "declined";
+  return "pending";
+};
+
+const StateCell = ({ state }) => {
+  if (state === "scheduled")
+    return (
+      <span className="flex items-center justify-end">
+        <span className="rv-state ok"><Icon name="check" size={13} /> Scheduled</span>
+      </span>
+    );
+  if (state === "skipped" || state === "declined")
+    return (
+      <span className="flex items-center justify-end">
+        <span className="rv-state no">
+          <Icon name="x" size={13} /> {state === "skipped" ? "Skipped" : "Declined"}
+        </span>
+      </span>
+    );
+  return <span className="text-xs text-slate-400 text-right">Pending</span>;
+};
 
 export const SessionsTable = ({ sessions = [], status, limit = 4 }) => {
   const [open, setOpen] = useState(false);
   const shown = open || !limit ? sessions : sessions.slice(0, limit);
 
-  const stateCell = () => {
-    if (status === "accepted")
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">
-          <Check size={13} /> Scheduled
-        </span>
-      );
-    if (status === "rejected")
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600">
-          <X size={13} /> Declined
-        </span>
-      );
-    return <span className="text-xs text-slate-400">Pending</span>;
-  };
-
   return (
-    <div className="border-t border-slate-100">
-      <div
-        className={`hidden bg-gray-50 px-6 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 md:grid ${ROW_GRID}`}
-      >
-        <span>Date</span>
-        <span>Time</span>
-        <span>Session</span>
-        <span>Teacher</span>
-        <span className="text-right">Status</span>
+    <>
+      <div className="pl-table">
+        <div className="pl-row pl-th">
+          <span>Date</span>
+          <span>Time</span>
+          <span>Session</span>
+          <span>Teacher</span>
+          <span className="text-right">Status</span>
+        </div>
+        {shown.map((session, index) => {
+          const state = sessionState(session, status);
+          const meta = [
+            session.sessionRelationalType && typeOf(session.sessionRelationalType).label,
+            session.scheduleType &&
+              (session.scheduleType === "once" ? "One-time" : formatPlanStatus(session.scheduleType)),
+            session.planSessionNotes,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+
+          return (
+            <div
+              key={session.planSessionId || session.sessionId || session.id || index}
+              className={`pl-row${state === "skipped" ? " is-denied" : ""}`}
+            >
+              <span className="font-semibold text-slate-900 whitespace-nowrap">
+                {sessionDateText(session) || "—"}
+              </span>
+              <span className="text-slate-500 whitespace-nowrap">{sessionTimeText(session) || "—"}</span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900 truncate">
+                  {sessionTitle(session, index)}
+                </span>
+                {meta && (
+                  <span className="block text-xs text-slate-500 truncate">
+                    <TypeDot type={session.sessionRelationalType} />
+                    {meta}
+                  </span>
+                )}
+              </span>
+              <span className="flex items-center gap-2 min-w-0">
+                {session.teacherName ? (
+                  <>
+                    <TeacherAvatar name={session.teacherName} />
+                    <span className="block text-sm font-medium text-slate-800 truncate">
+                      {session.teacherName}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-400">Teacher TBA</span>
+                )}
+              </span>
+              <StateCell state={state} />
+            </div>
+          );
+        })}
       </div>
 
-      {shown.map((session, index) => {
-        const meta = [
-          session.sessionRelationalType,
-          session.scheduleType &&
-          (session.scheduleType === "once"
-            ? "One-time"
-            : formatPlanStatus(session.scheduleType)),
-        ]
-          .filter(Boolean)
-          .join(" · ");
-
-        return (
-          <div
-            key={
-              session.planSessionId || session.sessionId || session.id || index
-            }
-            className={`grid grid-cols-1 gap-1 border-t border-slate-100 px-5 py-3 text-sm first:border-t-0 hover:bg-gray-50/70 md:px-6 ${ROW_GRID}`}
-          >
-            <span className="whitespace-nowrap font-semibold text-slate-900">
-              {sessionDateText(session) || "—"}
-            </span>
-            <span className="whitespace-nowrap text-slate-500">
-              {sessionTimeText(session) || "—"}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate font-semibold text-slate-900">
-                {sessionTitle(session, index)}
-              </span>
-              {(meta || session.planSessionNotes) && (
-                <span className="block truncate text-xs text-slate-500">
-                  <span className="me-1.5 inline-block h-2 w-2 rounded-full bg-one align-middle" />
-                  {[meta, session.planSessionNotes].filter(Boolean).join(" · ")}
-                </span>
-              )}
-            </span>
-            <span className="flex min-w-0 items-center gap-2">
-              {session.teacherName ? (
-                <>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
-                    {initials(session.teacherName)}
-                  </span>
-                  <span className="truncate text-sm font-medium text-slate-800">
-                    {session.teacherName}
-                  </span>
-                </>
-              ) : (
-                <span className="text-xs text-slate-400">Teacher TBA</span>
-              )}
-            </span>
-            <span className="md:text-right">{stateCell()}</span>
-          </div>
-        );
-      })}
-
       {limit > 0 && sessions.length > limit && (
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="flex w-full items-center justify-center gap-1.5 border-t border-slate-100 bg-white p-3 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 hover:text-one"
-        >
+        <button type="button" onClick={() => setOpen((value) => !value)} className="pl-more">
           {open ? "Show fewer sessions" : `Show all ${sessions.length} sessions`}
-          <ChevronDown
-            size={15}
-            className={`transition-transform ${open ? "rotate-180" : ""}`}
-          />
+          <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
       )}
-    </div>
+    </>
   );
 };
 
 /* ------------------------------------------------------------------ */
-/* Small UI bits                                                       */
-/* ------------------------------------------------------------------ */
-
-export const PlanButton = ({ tone = "default", className = "", ...props }) => {
-  const tones = {
-    default:
-      "border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50",
-    primary: "border-one bg-one text-white hover:brightness-110",
-    danger: "border-red-600 bg-red-600 text-white hover:bg-red-700",
-  };
-  return (
-    <button
-      type="button"
-      className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${tones[tone]} ${className}`}
-      {...props}
-    />
-  );
-};
-
-const Alert = ({ tone, title, children }) => (
-  <div
-    className={`rounded-lg border px-3.5 py-2.5 text-[13px] text-slate-600 ${tone === "danger"
-        ? "border-red-200 bg-red-50"
-        : tone === "warn"
-          ? "border-amber-200 bg-amber-50"
-          : "border-blue-200 bg-blue-50"
-      }`}
-  >
-    <b
-      className={`me-1 font-bold ${tone === "danger"
-          ? "text-red-700"
-          : tone === "warn"
-            ? "text-amber-800"
-            : "text-blue-800"
-        }`}
-    >
-      {title}
-    </b>
-    {children}
-  </div>
-);
-
-/* ------------------------------------------------------------------ */
-/* Plan card                                                           */
+/* Plan card (design: planCardHtml)                                    */
 /*   variant="slots" → the free times the student sent                 */
-/*   variant="plan"  → the admin's proposal + approve / request changes */
+/*   variant="plan"  → the admin's proposal + approve / ask for changes */
 /* ------------------------------------------------------------------ */
 
 const AvailabilityPlanCard = ({
@@ -469,25 +364,44 @@ const AvailabilityPlanCard = ({
   onOpen,
   onEdit,
   onRespond,
+  onViewUpcoming,
   responding = false,
 }) => {
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
+  // List items carry only a session count; the sessions are loaded on demand
+  // from GET /availability-plans/:id when the student opens them here.
+  const [loadedSessions, setLoadedSessions] = useState(null);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadSessionsError, setLoadSessionsError] = useState("");
 
   const slots = plan.slots || [];
-  const sessions = plan.proposedSessions || [];
-  const sessionsCount =
-    sessions.length || Number(plan.proposedSessionsCount) || 0;
-  const teachers = new Set(
-    sessions.map((s) => s.teacherName).filter(Boolean),
-  ).size;
+  const sessions = plan.proposedSessions?.length ? plan.proposedSessions : loadedSessions || [];
+  const sessionsCount = sessions.length || Number(plan.proposedSessionsCount) || 0;
+  const teachers = new Set(sessions.map((s) => s.teacherName).filter(Boolean)).size;
   const range = sessionsRange(sessions);
   const respondable = canRespondTo(plan);
-  // Inline approval only when the sessions are loaded, so the student
+  // Approve inline only once the sessions are visible, so the student
   // always sees what they approve.
-  const canAnswerHere =
-    variant === "plan" && respondable && onRespond && sessions.length > 0;
+  const canAnswerHere = variant === "plan" && respondable && onRespond && sessions.length > 0;
+
+  const loadSessions = async () => {
+    setLoadingSessions(true);
+    setLoadSessionsError("");
+    try {
+      const response = await api.get(`${PLANS_URL}/${plan.id}`);
+      setLoadedSessions(response.data?.data?.plan?.proposedSessions || []);
+    } catch (error) {
+      setLoadSessionsError(
+        error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          "Could not load the sessions.",
+      );
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
 
   const approve = () => onRespond(plan.id, "accept", "");
 
@@ -503,77 +417,112 @@ const AvailabilityPlanCard = ({
     }
   };
 
+  const cancelDeny = () => {
+    setDenying(false);
+    setReason("");
+    setReasonError("");
+  };
+
   const subtitle =
     variant === "slots"
-      ? `${slots.length} ${slots.length === 1 ? "time slot" : "time slots"}${plan.createdAt ? ` · sent ${formatShortDate(plan.createdAt)}` : ""
-      }`
+      ? `${slots.length} ${slots.length === 1 ? "time slot" : "time slots"}${
+          plan.createdAt ? ` · sent ${formatShortDate(plan.createdAt)}` : ""
+        }`
       : sessionsCount
         ? [
-          `${sessionsCount} ${sessionsCount === 1 ? "session" : "sessions"}`,
-          range,
-          teachers
-            ? `${teachers} ${teachers === 1 ? "teacher" : "teachers"}`
-            : "",
-          plan.status === "accepted" && plan.respondedAt
-            ? `approved ${formatShortDate(plan.respondedAt)}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" · ")
+            `${sessionsCount} ${sessionsCount === 1 ? "session" : "sessions"}`,
+            range,
+            teachers ? `${teachers} ${teachers === 1 ? "teacher" : "teachers"}` : "",
+            plan.status === "accepted" && plan.respondedAt
+              ? `approved ${formatShortDate(plan.respondedAt)}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
         : "The admin is building your plan from these times.";
 
+  // Accepted plans: how many proposed sessions were booked vs skipped.
+  const answered = sessions.filter((s) => ["accepted", "rejected"].includes(s.studentResponse));
+  const bookedCount = answered.filter((s) => s.studentResponse === "accepted").length;
+  const skippedCount = answered.length - bookedCount;
+  const showProgress = variant === "plan" && plan.status === "accepted" && answered.length > 0;
+
+  const showAlerts =
+    plan.adminNotes ||
+    plan.status === "rejected" ||
+    plan.status === "cancelled" ||
+    (variant === "slots" && plan.status === "pending_admin_review");
+
   return (
-    <section className="mb-5 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      {/* Head */}
-      <div className="flex flex-wrap items-start justify-between gap-4 px-5 pb-4 pt-5 md:px-6">
+    <section className="pl-card">
+      <div className="pl-head">
         <div className="min-w-0">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-[#F5D0D0] bg-[#FDF2F2] px-2 py-0.5 text-[11px] font-extrabold tracking-wide text-one">
-              {variant === "slots" ? "TIME SLOTS" : "STUDY PLAN"}
-            </span>
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span className="pl-course">{variant === "slots" ? "TIME SLOTS" : "STUDY PLAN"}</span>
             <StatusPill status={plan.status} />
           </div>
-          <h3 className="break-words text-[17px] font-bold tracking-tight text-slate-900">
+          <h3 className="text-[17px] font-bold text-slate-900 tracking-tight break-words">
             {heading || plan.title}
           </h3>
-          <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>
+          <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {canAnswerHere && !denying && (
             <>
-              <PlanButton tone="primary" disabled={responding} onClick={approve}>
-                <Check size={16} />
-                {responding ? "Saving..." : "Approve plan"}
-              </PlanButton>
-              <PlanButton disabled={responding} onClick={() => setDenying(true)}>
-                Request changes
-              </PlanButton>
+              <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={approve}>
+                <Icon name="check" size={16} />
+                {responding ? "Saving…" : "Approve plan"}
+              </button>
+              <button type="button" className="btn-deny disabled:opacity-60" disabled={responding} onClick={() => setDenying(true)}>
+                Ask for changes
+              </button>
             </>
           )}
           {!canAnswerHere && respondable && variant === "plan" && onOpen && (
-            <PlanButton tone="primary" onClick={() => onOpen(plan.id)}>
-              Review & approve <ChevronRight size={15} />
-            </PlanButton>
+            <button type="button" className="pl-btn primary" onClick={() => onOpen(plan.id)}>
+              Review & approve <ChevronRight size={14} />
+            </button>
           )}
-          {onEdit && (
-            <PlanButton onClick={() => onEdit(plan)} title="Edit time slots">
-              <Pencil size={14} />
+          {variant === "plan" && plan.status === "accepted" && onViewUpcoming && (
+            <button type="button" className="pl-btn" onClick={onViewUpcoming}>
+              View upcoming sessions <ChevronRight size={14} />
+            </button>
+          )}
+          {onEdit && canEditPlan(plan) && (
+            <button type="button" className="pl-btn" onClick={() => onEdit(plan)} title="Edit time slots">
               Edit times
-            </PlanButton>
+            </button>
           )}
           {onOpen && !(respondable && variant === "plan" && !canAnswerHere) && (
-            <PlanButton onClick={() => onOpen(plan.id)}>
-              Details <ChevronRight size={15} />
-            </PlanButton>
+            <button type="button" className="pl-btn" onClick={() => onOpen(plan.id)}>
+              Details <ChevronRight size={14} />
+            </button>
           )}
         </div>
       </div>
 
-      {/* Request changes form */}
+      {showProgress && (
+        <div className="pl-progress">
+          <div className="flex justify-between text-xs text-slate-500 mb-1.5 gap-3">
+            <span>
+              <b className="text-slate-700">
+                {bookedCount} of {sessions.length}
+              </b>{" "}
+              sessions booked in your Upcoming
+            </span>
+            {skippedCount > 0 && <span className="text-red-600">{skippedCount} skipped</span>}
+          </div>
+          <div className="pl-bar">
+            <span style={{ width: `${(bookedCount / sessions.length) * 100}%`, background: "#16a34a" }}></span>
+            <span style={{ width: `${(skippedCount / sessions.length) * 100}%`, background: "#dc2626" }}></span>
+          </div>
+        </div>
+      )}
+
       {denying && (
-        <div className="px-5 pb-4 md:px-6">
-          <div className="flex flex-col items-stretch gap-2 sm:flex-row">
+        <div className="px-5 md:px-6 pb-4">
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch">
             <input
               autoFocus
               value={reason}
@@ -581,78 +530,69 @@ const AvailabilityPlanCard = ({
                 setReason(event.target.value);
                 setReasonError("");
               }}
+              onKeyDown={(event) => event.key === "Enter" && !responding && sendChanges()}
               placeholder="What should the admin change? e.g. no Saturday mornings"
-              className="flex-1 rounded-lg border border-slate-200 px-3.5 py-2 text-sm outline-none focus:border-one focus:ring-2 focus:ring-one/10"
+              className="input flex-1"
             />
             <div className="flex gap-2">
-              <PlanButton tone="danger" disabled={responding} onClick={sendChanges}>
-                {responding ? "Sending..." : "Send to admin"}
-              </PlanButton>
-              <PlanButton
-                disabled={responding}
-                onClick={() => {
-                  setDenying(false);
-                  setReason("");
-                  setReasonError("");
-                }}
-              >
+              <button type="button" className="pl-btn danger disabled:opacity-60" disabled={responding} onClick={sendChanges}>
+                {responding ? "Sending…" : "Send to admin"}
+              </button>
+              <button type="button" className="pl-btn disabled:opacity-60" disabled={responding} onClick={cancelDeny}>
                 Cancel
-              </PlanButton>
+              </button>
             </div>
           </div>
-          {reasonError && (
-            <p className="mt-2 text-sm font-semibold text-red-600">
-              {reasonError}
-            </p>
+          {reasonError && <p className="mt-2 text-sm font-semibold text-red-600">{reasonError}</p>}
+        </div>
+      )}
+
+      {showAlerts && (
+        <div className="px-5 md:px-6 pb-4 space-y-2">
+          {variant === "slots" && plan.status === "pending_admin_review" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Sent to the admin
+              {plan.createdAt ? ` on ${formatShortDate(plan.createdAt)}` : ""}. You will get your study plan
+              as soon as they review these times.
+            </div>
+          )}
+          {plan.adminNotes && (
+            <div className="pl-alert info">
+              <b>Admin note:</b> “{plan.adminNotes}”
+            </div>
+          )}
+          {plan.status === "rejected" && (
+            <div className="pl-alert danger">
+              <b>Sent back to the admin.</b>
+              {plan.studentFeedback
+                ? `Your request: “${plan.studentFeedback}”`
+                : "The admin is preparing a new plan."}
+            </div>
+          )}
+          {plan.status === "cancelled" && (
+            <div className="pl-alert danger">
+              <b>Cancelled.</b> This plan is no longer active.
+            </div>
           )}
         </div>
       )}
 
-      {/* Alerts */}
-      {(plan.adminNotes ||
-        plan.status === "rejected" ||
-        (variant === "slots" && plan.status === "pending_admin_review")) && (
-          <div className="space-y-2 px-5 pb-4 md:px-6">
-            {variant === "slots" && plan.status === "pending_admin_review" && (
-              <Alert tone="warn" title="Sent to the admin.">
-                You will get your study plan as soon as they review these times.
-              </Alert>
-            )}
-            {plan.adminNotes && (
-              <Alert tone="info" title="Admin note:">
-                “{plan.adminNotes}”
-              </Alert>
-            )}
-            {plan.status === "rejected" && (
-              <Alert tone="danger" title="Sent back to the admin.">
-                {plan.studentFeedback
-                  ? `Your request: “${plan.studentFeedback}”`
-                  : "The admin is preparing a new plan."}
-              </Alert>
-            )}
-          </div>
-        )}
-
-      {/* Body */}
       {variant === "slots" ? (
-        <div className="border-t border-slate-100 px-5 py-4 md:px-6">
+        <div className="border-t border-slate-100 px-5 md:px-6 py-4">
           <SlotsGrid slots={slots} />
         </div>
       ) : sessions.length ? (
-        <SessionsTable
-          sessions={sessions}
-          status={plan.status}
-          limit={sessionsLimit}
-        />
-      ) : sessionsCount && onOpen ? (
-        <button
-          type="button"
-          onClick={() => onOpen(plan.id)}
-          className="flex w-full items-center justify-center gap-1.5 border-t border-slate-100 p-3 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 hover:text-one"
-        >
-          <CalendarClock size={15} />
-          Open the plan to see its {sessionsCount} sessions
-        </button>
+        <SessionsTable sessions={sessions} status={plan.status} limit={sessionsLimit} />
+      ) : sessionsCount ? (
+        <>
+          <button type="button" onClick={loadSessions} disabled={loadingSessions} className="pl-more">
+            {loadingSessions ? "Loading sessions…" : `Show the ${sessionsCount} proposed sessions`}
+            {!loadingSessions && <ChevronDown size={14} />}
+          </button>
+          {loadSessionsError && (
+            <p className="px-5 md:px-6 pb-3 text-sm font-semibold text-red-600 text-center">{loadSessionsError}</p>
+          )}
+        </>
       ) : null}
     </section>
   );

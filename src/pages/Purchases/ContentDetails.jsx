@@ -1,189 +1,24 @@
-import React, { useState, useRef, useEffect } from "react";
-import Hls from "hls.js";
+import { useCallback, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import useGet from "@/hooks/useGet";
-import usePost from "@/hooks/usePost";
-import Loader from "@/components/Loading";
-import Errorpage from "@/components/Errorpage";
-import {
-  ArrowLeft,
-  User,
-  GraduationCap,
-  Lock,
-  Unlock,
-  Lightbulb,
-  Layers,
-  BookOpen,
-  Sparkles,
-  Video,
-  FileText,
-  HelpCircle,
-  Clock,
-  X,
-  Play,
-} from "lucide-react";
+import Icon from "@/components/portal/Icon";
+import { Page, TeacherAvatar } from "@/components/portal/ui";
+import MaterialViewer from "@/pages/Lesson/parts/MaterialViewer";
+import { Box, LoadingPage, MatRow, QuizRow, ideaVideo, useStartQuiz } from "@/pages/Lesson/parts/LessonParts";
 
-// Plays the signed Bunny HLS playlist (.m3u8) returned in idea.video.streamUrl
-const HlsPlayer = ({ src, title }) => {
-  const videoRef = useRef(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !src) return undefined;
-
-    setFailed(false);
-    let hls;
-
-    if (Hls.isSupported()) {
-      hls = new Hls();
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {});
-      });
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) setFailed(true);
-      });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari / iOS play HLS natively
-      video.src = src;
-      video.play().catch(() => {});
-    } else {
-      setFailed(true);
-    }
-
-    return () => {
-      if (hls) hls.destroy();
-    };
-  }, [src]);
-
-  if (failed) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-center text-white/80 text-sm px-6">
-        Couldn&apos;t load this video. The link may have expired, please refresh
-        the page.
-      </div>
-    );
-  }
-
-  return (
-    <video
-      ref={videoRef}
-      title={title}
-      controls
-      playsInline
-      controlsList="nodownload"
-      onContextMenu={(e) => e.preventDefault()}
-      className="w-full h-full bg-black"
-    />
-  );
-};
-
-// Fetches the PDF and shows it through a local blob: URL so the browser renders
-// it inline even if the backend sends Content-Disposition: attachment or
-// X-Frame-Options headers. Google Drive links are embedded directly.
-const PdfPreview = ({ url, title }) => {
-  const isDrive = /drive\.google\.com/.test(url || "");
-  const [state, setState] = useState({
-    blobUrl: null,
-    loading: !isDrive,
-    error: false,
-  });
-
-  useEffect(() => {
-    if (!url || isDrive) return undefined;
-
-    const controller = new AbortController();
-    let objectUrl = null;
-    setState({ blobUrl: null, loading: true, error: false });
-
-    fetch(url, { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then((buffer) => {
-        objectUrl = URL.createObjectURL(
-          new Blob([buffer], { type: "application/pdf" }),
-        );
-        setState({ blobUrl: objectUrl, loading: false, error: false });
-      })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
-        setState({ blobUrl: null, loading: false, error: true });
-      });
-
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [url, isDrive]);
-
-  if (isDrive) {
-    return (
-      <iframe
-        src={url}
-        title={title}
-        className="w-full h-full border-0 bg-white"
-        allowFullScreen
-      ></iframe>
-    );
-  }
-
-  if (state.loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-white/70 text-sm">
-        Loading PDF...
-      </div>
-    );
-  }
-
-  if (state.error || !state.blobUrl) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-center text-white/80 text-sm px-6">
-        Couldn&apos;t load this PDF. Please try again later.
-      </div>
-    );
-  }
-
-  return (
-    <iframe
-      key={state.blobUrl}
-      src={`${state.blobUrl}#toolbar=0&navpanes=0`}
-      title={title}
-      className="w-full h-full border-0 bg-white"
-    ></iframe>
-  );
-};
+const KIND = { courses: ["course", "Course"], chapters: ["chapter", "Chapter"], lessons: ["lesson", "Lesson"] };
 
 const ContentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { postData, loading: startingQuiz } = usePost();
-  const [loadingQuizId, setLoadingQuizId] = useState(null);
-  const [previewModal, setPreviewModal] = useState({
-    isOpen: false,
-    url: "",
-    title: "",
-    type: "",
-    streamUrl: null,
-  });
-  const modalRef = useRef(null);
+  const { start, startingId } = useStartQuiz();
+  const [viewing, setViewing] = useState(null);
+  const closeViewer = useCallback(() => setViewing(null), []);
 
-  const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      modalRef.current?.requestFullscreen().catch((err) => console.error(err));
-    } else {
-      document.exitFullscreen();
-    }
-  };
   const currentState = location.state?.contentType;
   const contentType =
-    currentState === "lessons" ||
-    currentState === "lesson" ||
-    location.pathname.includes("/lesson")
+    currentState === "lessons" || currentState === "lesson" || location.pathname.includes("/lesson")
       ? "lessons"
       : location.pathname.includes("/chapters/") || currentState === "chapters"
         ? "chapters"
@@ -200,12 +35,19 @@ const ContentDetails = () => {
   };
 
   const { data, loading, error } = useGet(endpoints[contentType]);
-  const { data: quizzesData } = useGet(
-    isLessonType ? `/api/user/quizzes/lesson/${id}` : null,
-  );
+  const { data: quizzesData } = useGet(isLessonType ? `/api/user/quizzes/lesson/${id}` : null);
 
-  if (loading) return <Loader />;
-  if (error) return <Errorpage error={error} />;
+  if (error && !data) {
+    return (
+      <Page>
+        <section className="rp-card">
+          <p className="text-sm text-red-600 mb-3">{typeof error === "string" ? error : "Could not load this content."}</p>
+          <button className="pl-btn" onClick={() => navigate(-1)}>← Go back</button>
+        </section>
+      </Page>
+    );
+  }
+  if (loading || !data) return <Page><LoadingPage /></Page>;
 
   const rawData = data?.data || {};
 
@@ -213,480 +55,176 @@ const ContentDetails = () => {
   if (isChapterType) content = rawData.chapter || {};
   if (isLessonType) content = rawData.lesson || {};
 
-  // --- استقبال البيانات الممررة من صفحة المشتريات الذكية ---
+  // Data passed from the purchases page
   const passedChapters = location.state?.passedChapters || [];
   const passedLessons = location.state?.passedLessons || [];
 
-  // 1. إذا كنا في كورس: نأخذ الشباتر الممررة من الـ state
+  // 1. Course → chapters passed in the state
   const chaptersList = isCourseType ? passedChapters : [];
 
-  // 2. إذا كنا في شابتر: نأخذ الدروس ونفلترها بناءً على الـ id الخاص بهذا الشابتر
+  // 2. Chapter → its lessons (from the API, else the passed lessons of this chapter)
   const lessonsList = isChapterType
-    ? rawData.lessons ||
-      passedLessons.filter((ls) => (ls.chapterId || ls.chapter?.id) === id)
+    ? rawData.lessons || passedLessons.filter((ls) => (ls.chapterId || ls.chapter?.id) === id)
     : [];
 
   const ideasList = rawData.ideas || [];
 
-  // --- تجميع وعرض المدرسين بشكل سليم وديناميكي ---
   const teachersList =
     (isChapterType || isLessonType) && rawData.teacher
       ? [{ name: rawData.teacher.name, role: "Instructor" }]
       : content.teachers || rawData.teachers || [];
 
-  const getEmbedUrl = (url) => {
-    if (!url) return "";
-    const driveIdMatch = url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
-    if (driveIdMatch && driveIdMatch[1]) {
-      return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
-    }
-    return url;
-  };
-
-  const handlePreview = (rawUrl, title, type = "pdf", streamUrl = null) => {
-    if (type === "hls" && streamUrl) {
-      setPreviewModal({
-        isOpen: true,
-        url: "",
-        title,
-        type: "hls",
-        streamUrl,
-      });
-    } else {
-      setPreviewModal({
-        isOpen: true,
-        url: getEmbedUrl(rawUrl),
-        title,
-        type,
-        streamUrl: null,
-      });
-    }
-  };
-
   const rawQuizzes = quizzesData?.data?.quizzes || quizzesData?.quizzes || [];
   const quizzesList =
-    isLessonType && rawQuizzes.length > 0
-      ? [...rawQuizzes].sort((a, b) => (a.quizOrder || 0) - (b.quizOrder || 0))
-      : [];
+    isLessonType && rawQuizzes.length > 0 ? [...rawQuizzes].sort((a, b) => (a.quizOrder || 0) - (b.quizOrder || 0)) : [];
+
+  const locked = !!(rawData.isLocked || content.isLocked);
+  const [kindKey, kindLabel] = KIND[contentType];
+  const hasSemester = (content.isHaveSemester && content.semesters?.length > 0) || rawData.semester;
+  const showPrereq = content.preRequisition && content.preRequisition !== "None";
 
   return (
-    <div className="min-w-full min-h-screen p-6 bg-gray-50/50 relative">
-      {/* Header Section */}
-      <div className="flex items-center gap-4 mb-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="p-2 transition-colors rounded-full hover:bg-gray-200"
-        >
-          <ArrowLeft className="w-6 h-6 text-gray-600" />
-        </button>
-        <div>
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 text-xs font-semibold uppercase bg-blue-50 text-blue-700 rounded-md border border-blue-100">
-              {isLessonType
-                ? "Lesson Info"
-                : isChapterType
-                  ? "Chapter Info"
-                  : "Course Info"}
-            </span>
-            {rawData.course && (
-              <span className="px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-md">
-                Course: {rawData.course.name}
-              </span>
-            )}
-            {rawData.chapter && isLessonType && (
-              <span className="px-2.5 py-0.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-md">
-                Chapter: {rawData.chapter.name}
-              </span>
-            )}
+    <Page>
+      <button className="text-sm font-semibold text-slate-500 hover:text-one mb-4" onClick={() => navigate(-1)}>← Back</button>
+
+      {/* Header */}
+      <section className="rp-card mb-5">
+        <div className="flex flex-col md:flex-row md:items-center gap-5">
+          <div className={`w-16 h-16 rounded-xl flex items-center justify-center shrink-0 ${locked ? "bg-[#FDECEC] text-one" : "bg-green-50 text-green-600"}`} title={locked ? "Locked" : "Unlocked"}>
+            <Icon name={locked ? "lock" : "unlock"} size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {content.name || "Untitled Content"}
-          </h1>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <span className={`kind-pill kind-${kindKey}`}>{kindLabel}</span>
+              {rawData.course && <span className="pl-course">{rawData.course.name}</span>}
+              {rawData.chapter && isLessonType && <span className="text-xs font-semibold text-slate-500">{rawData.chapter.name}</span>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-extrabold tracking-tight text-gray-900 break-words">{content.name || "Untitled content"}</h2>
+              {locked ? <span className="pill bg-slate-100 text-slate-500">LOCKED</span> : <span className="pill bg-green-100 text-green-700">UNLOCKED</span>}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Main Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          {/* About Card */}
-          <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-            <div className="flex justify-between items-start mb-4">
-              <h2 className="text-xl font-bold text-gray-900">About Content</h2>
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium ${
-                  rawData.isLocked || content.isLocked
-                    ? "bg-red-50 text-red-700"
-                    : "bg-green-50 text-green-700"
-                }`}
-              >
-                {rawData.isLocked || content.isLocked ? (
-                  <Lock className="w-3 h-3" />
-                ) : (
-                  <Unlock className="w-3 h-3" />
-                )}
-                {rawData.isLocked || content.isLocked ? "Locked" : "Accessible"}
-              </span>
-            </div>
-            <p className="text-gray-600 mb-6 leading-relaxed">
-              {content.description || "No description provided for this item."}
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-              {content.preRequisition && content.preRequisition !== "None" && (
-                <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
-                  <GraduationCap className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-medium text-gray-400">
-                      Prerequisite
-                    </p>
-                    <p className="text-sm font-semibold text-gray-700">
-                      {content.preRequisition}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {content.whatYouGain && (
-                <div className="flex items-start gap-3 p-3 bg-emerald-50/40 rounded-xl">
-                  <Lightbulb className="w-5 h-5 text-emerald-500 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-medium text-emerald-600">
-                      What you will gain
-                    </p>
-                    <p className="text-sm font-semibold text-emerald-800">
-                      {content.whatYouGain}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
+        <p className="text-sm text-slate-600 leading-relaxed mt-4 whitespace-pre-line">{content.description || "No description provided for this item."}</p>
+        {(showPrereq || content.whatYouGain) && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
+            {showPrereq && (
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Prerequisite</p>
+                <p className="text-sm font-semibold text-slate-700 mt-0.5">{content.preRequisition}</p>
+              </div>
+            )}
+            {content.whatYouGain && (
+              <div className="rounded-xl bg-green-50/60 p-3">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-green-700">What you will gain</p>
+                <p className="text-sm font-semibold text-slate-700 mt-0.5">{content.whatYouGain}</p>
+              </div>
+            )}
           </div>
+        )}
+      </section>
 
-          {/* 1. قسم الشباتر بداخل الكورس */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <div className="lg:col-span-2 flex flex-col gap-4 min-w-0">
+          {/* 1. Chapters of the course */}
           {isCourseType && chaptersList.length > 0 && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Layers className="w-5 h-5 text-purple-600" />
-                <h3 className="text-lg font-bold text-gray-900">
-                  Chapters in this Course ({chaptersList.length})
-                </h3>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {chaptersList.map((chapter, index) => (
-                  <div
-                    key={chapter.id}
-                    className="flex justify-between items-center py-3.5 gap-4"
+            <Box title={`Chapters in this course (${chaptersList.length})`}>
+              {chaptersList.map((chapter, index) => (
+                <MatRow key={chapter.id} lead={<span className="nt-icon brand font-extrabold">{index + 1}</span>} title={chapter.name}>
+                  <button
+                    className="pl-btn"
+                    onClick={() => navigate(`/user/contentdetails/${chapter.id}`, { state: { contentType: "chapters", passedLessons } })}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 flex items-center justify-center bg-purple-50 text-purple-600 font-semibold rounded-lg text-xs">
-                        {index + 1}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">
-                        {chapter.name}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        navigate(`/user/contentdetails/${chapter.id}`, {
-                          state: {
-                            contentType: "chapters",
-                            passedLessons: passedLessons,
-                          },
-                        });
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors cursor-pointer"
-                    >
-                      <Layers className="w-3.5 h-3.5" />
-                      View Chapter
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+                    View chapter →
+                  </button>
+                </MatRow>
+              ))}
+            </Box>
           )}
 
-          {/* 2. قسم الدروس بداخل الشابتر */}
+          {/* 2. Lessons of the chapter */}
           {isChapterType && lessonsList.length > 0 && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <BookOpen className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-bold text-gray-900">
-                  Lessons in this Chapter ({lessonsList.length})
-                </h3>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {lessonsList.map((lesson) => (
-                  <div
-                    key={lesson.id}
-                    className="flex justify-between items-center py-3.5 gap-4"
+            <Box title={`Lessons in this chapter (${lessonsList.length})`}>
+              {lessonsList.map((lesson) => (
+                <MatRow key={lesson.id} lead={<span className="nt-icon blue font-extrabold">{lesson.order || 1}</span>} title={lesson.name}>
+                  <button
+                    className="pl-btn"
+                    onClick={() => navigate(`/user/contentdetails/${lesson.id}`, { state: { contentType: "lessons" } })}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 flex items-center justify-center bg-blue-50 text-blue-600 font-semibold rounded-lg text-xs">
-                        {lesson.order || 1}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">
-                        {lesson.name}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        navigate(`/user/contentdetails/${lesson.id}`, {
-                          state: { contentType: "lessons" },
-                        });
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors cursor-pointer"
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      View Lesson
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+                    View lesson →
+                  </button>
+                </MatRow>
+              ))}
+            </Box>
           )}
 
-          {/* 3. محتويات الحصة من أفكار وفيديوهات وملفات */}
+          {/* 3. Ideas of the lesson (videos + PDFs) */}
           {isLessonType && ideasList.length > 0 && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-5 h-5 text-amber-500" />
-                <h3 className="text-lg font-bold text-gray-900">
-                  Covered Ideas ({ideasList.length})
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 gap-4">
-                {ideasList.map((idea) => (
-                  <div
-                    key={idea.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-gray-50/50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-amber-50 text-amber-600 font-bold rounded-full text-xs">
-                        {idea.ideaOrder}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">
-                        {idea.idea}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {idea.video?.streamUrl && (
-                        <button
-                          onClick={() =>
-                            handlePreview(
-                              null,
-                              `Video: ${idea.idea}`,
-                              "hls",
-                              idea.video.streamUrl,
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Play className="w-3.5 h-3.5" /> Watch Video
-                        </button>
-                      )}
-                      {idea.pdf && (
-                        <button
-                          onClick={() =>
-                            handlePreview(idea.pdf, `PDF: ${idea.idea}`, "pdf")
-                          }
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <FileText className="w-3.5 h-3.5" /> View PDF
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Box title={`Covered ideas (${ideasList.length})`}>
+              {ideasList.map((idea) => {
+                const video = ideaVideo(idea);
+                const kinds = [idea.pdf ? "PDF" : "", video ? "Video" : ""].filter(Boolean).join(" · ");
+                return (
+                  <MatRow key={idea.id} lead={<span className="nt-icon amber font-extrabold">{idea.ideaOrder}</span>} title={idea.idea} meta={kinds}>
+                    {video && (
+                      <button className="pl-btn" onClick={() => setViewing({ kind: "video", title: `Video: ${idea.idea}`, ...video })}>▶ Watch</button>
+                    )}
+                    {idea.pdf && (
+                      <button className="pl-btn" onClick={() => setViewing({ kind: "pdf", title: `PDF: ${idea.idea}`, url: idea.pdf })}>
+                        <Icon name="pdf" size={15} /> Preview PDF
+                      </button>
+                    )}
+                  </MatRow>
+                );
+              })}
+            </Box>
           )}
 
-          {/* 4. كويزات الحصة */}
+          {/* 4. Quizzes of the lesson */}
           {isLessonType && quizzesList.length > 0 && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <HelpCircle className="w-5 h-5 text-indigo-500" />
-                <h3 className="text-lg font-bold text-gray-900">
-                  Lesson Quizzes ({quizzesList.length})
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 gap-4">
-                {quizzesList.map((quiz) => (
-                  <div
-                    key={quiz.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl bg-indigo-50/10"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 shrink-0 flex items-center justify-center bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs mt-0.5">
-                        {quiz.quizOrder}
-                      </div>
-                      <div>
-                        <span className="text-sm font-semibold text-gray-800 block">
-                          {quiz.title}
-                        </span>
-                        <div className="flex items-center gap-3 mt-2">
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                            <Clock className="w-3 h-3" />{" "}
-                            {quiz.durationMinutes || quiz.durationHours * 60}{" "}
-                            mins
-                          </span>
-                          <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                            Score: {quiz.totalScore}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      disabled={loadingQuizId === quiz.id}
-                      onClick={async () => {
-                        setLoadingQuizId(quiz.id);
-                        try {
-                          const res = await postData(
-                            {},
-                            `/api/user/quizzes/${quiz.id}/start`,
-                            "Quiz started successfully!",
-                          );
-                          if (res) navigate(`/user/quiz/${quiz.id}`);
-                        } catch (err) {
-                          console.error(err);
-                        } finally {
-                          setLoadingQuizId(null); // إيقاف التحميل
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition-colors shadow-sm cursor-pointer"
-                    >
-                      {loadingQuizId === quiz.id ? "Starting..." : "Start Quiz"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Box title={`Lesson quizzes (${quizzesList.length})`}>
+              {quizzesList.map((quiz) => <QuizRow key={quiz.id} quiz={quiz} startingId={startingId} onStart={start} />)}
+            </Box>
           )}
 
-          {/* 5. عرض الترم الدراسي (Semester Info) */}
-          {((content.isHaveSemester && content.semesters?.length > 0) ||
-            rawData.semester) && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Layers className="w-5 h-5 text-gray-500" />
-                <h3 className="text-lg font-bold text-gray-900">
-                  Semester Info
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {rawData.semester ? (
-                  <div className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl bg-gray-50/50">
-                    <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span className="text-sm font-medium text-gray-700">
-                      {rawData.semester.name}
-                    </span>
-                  </div>
-                ) : (
-                  content.semesters?.map((semester) => (
-                    <div
-                      key={semester.id}
-                      className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl bg-gray-50/50"
-                    >
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      <span className="text-sm font-medium text-gray-700">
-                        {semester.name}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+          {!(isCourseType && chaptersList.length) && !(isChapterType && lessonsList.length) && !(isLessonType && (ideasList.length || quizzesList.length)) && (
+            <section className="rp-card text-center py-8">
+              <p className="text-sm text-slate-400">Nothing to show here yet.</p>
+            </section>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4 min-w-0">
+          {/* 5. Semester */}
+          {hasSemester && (
+            <Box title="Semester">
+              {rawData.semester ? (
+                <MatRow icon="history" tone="blue" title={rawData.semester.name} />
+              ) : (
+                content.semesters?.map((semester) => <MatRow key={semester.id} icon="history" tone="blue" title={semester.name} />)
+              )}
+            </Box>
           )}
 
-          {/* 6. عرض المدرسين (Instructors) */}
+          {/* 6. Instructors */}
           {teachersList.length > 0 && (
-            <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <User className="w-5 h-5 text-gray-500" />
-                <h3 className="text-lg font-bold text-gray-900">Instructors</h3>
-              </div>
-              <div className="space-y-3">
-                {teachersList.map((teacher, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl"
-                  >
-                    <div className="w-10 h-10 flex items-center justify-center bg-gray-200 rounded-full font-bold text-gray-700 uppercase">
-                      {teacher.name?.charAt(0) || "T"}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-900">
-                        {teacher.name}
-                      </h4>
-                      <p className="text-xs text-gray-500 capitalize">
-                        {teacher.role || "Instructor"}
-                      </p>
-                    </div>
+            <Box title="Instructors">
+              {teachersList.map((teacher, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-white">
+                  <TeacherAvatar name={teacher.name} big />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-900 truncate">{teacher.name}</p>
+                    <p className="text-xs text-slate-400 capitalize">{teacher.role || "Instructor"}</p>
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              ))}
+            </Box>
           )}
         </div>
       </div>
 
-      {/* مودال العرض للـ PDF والفيديو */}
-      {previewModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div
-            ref={modalRef}
-            className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
-          >
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
-              <h3 className="font-bold text-gray-900 truncate text-sm sm:text-base">
-                {previewModal.title}
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Full Screen Toggle Button */}
-                <button
-                  onClick={toggleFullScreen}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-                >
-                  Full Screen
-                </button>
-                {/* Close Button */}
-                <button
-                  onClick={() =>
-                    setPreviewModal({
-                      isOpen: false,
-                      url: "",
-                      title: "",
-                      type: "",
-                      streamUrl: null,
-                    })
-                  }
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 bg-gray-900">
-              {previewModal.type === "hls" && previewModal.streamUrl ? (
-                <HlsPlayer
-                  key={previewModal.streamUrl}
-                  src={previewModal.streamUrl}
-                  title={previewModal.title}
-                />
-              ) : (
-                <PdfPreview
-                  key={previewModal.url}
-                  url={previewModal.url}
-                  title={previewModal.title}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {viewing && <MaterialViewer item={viewing} onClose={closeViewer} />}
+    </Page>
   );
 };
 

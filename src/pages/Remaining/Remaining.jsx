@@ -1,774 +1,289 @@
-import React, { useState, useMemo, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import api from "@/api/api";
 import useGet from "@/hooks/useGet";
-import usePost from "@/hooks/usePost";
-import Loader from "@/components/Loading";
-import Errorpage from "@/components/Errorpage";
-import {
-  BookOpen,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  ChevronRight,
-  Filter,
-  FileText,
-  Download,
-  Eye,
-  ExternalLink,
-  Upload,
-  X,
-  Send,
-  Award,
-  MessageSquare,
-} from "lucide-react";
+import { useStudentData } from "@/context/StudentData";
+import Icon from "@/components/portal/Icon";
+import { Kpi, Modal, Page, PageHead } from "@/components/portal/ui";
 
-// ─── إعدادات الواجب الإضافي ───────────────────────────────
-const EXTRA_HOMEWORK_URL = "/api/user/extra-homework";
-// الـ id اللي بيتبعت في /api/user/extra-homework/{id}/submit
-// لو الباك إند متوقع assignmentId غيّرها لـ "assignmentId"
-const SUBMIT_ID_KEY = "homeworkId";
+/* Remaining H.W — extra homework from teachers + quizzes still to solve, in one list (MathPortal design). */
+
 const MAX_PDF_SIZE_MB = 10;
-// ألوان المشروع من index.css: one = #7d0a0a
-
-const STATUS_STYLES = {
-  assigned: { label: "Pending", className: "bg-amber-50 text-amber-700" },
-  submitted: { label: "Submitted", className: "bg-slate-100 text-slate-700" },
-  graded: { label: "Graded", className: "bg-green-50 text-green-700" },
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error("Could not read the file"));
+  reader.readAsDataURL(file);
+});
+const dueLabel = (v) => {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+const dueTime = (v) => {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 };
 
-// تحويل الملف لـ data:application/pdf;base64,...
-const fileToBase64 = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Could not read the file"));
-    reader.readAsDataURL(file);
-  });
+/** Downloads through a blob (keeps the file name); falls back to opening the link. */
+const download = async (url, title) => {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error();
+    const blobUrl = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `${title || "homework"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+};
 
-const formatSize = (bytes) =>
-  bytes < 1024 * 1024
-    ? `${(bytes / 1024).toFixed(0)} KB`
-    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+function SubmitModal({ item, onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
 
-const formatDateTime = (value) =>
-  value
-    ? new Date(value).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "";
-
-const Remaining = () => {
-  // ─── 1) كل الـ useState في الأول ──────────────────────────
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectedLessonId = searchParams.get("lessonId");
-  const [selectedLesson, setSelectedLesson] = useState(null);
-  const [startingQuizIds, setStartingQuizIds] = useState({});
-
-  // حالة الرفع لكل واجب: { [id]: { file, notes, error, submitting } }
-  const [uploads, setUploads] = useState({});
-  // الواجبات اللي اتسلمت في الجلسة دي (لحد ما الـ refetch يرجع)
-  const [localSubmitted, setLocalSubmitted] = useState({});
-
-  // ─── 2) الـ API hooks ─────────────────────────────────────
-  const {
-    data: lessonsData,
-    loading: lessonsLoading,
-    error: lessonsError,
-  } = useGet("/api/user/lessons/purchased");
-
-  const remainingUrl = selectedLessonId
-    ? `/api/user/quizzes/remaining-homework?lessonId=${selectedLessonId}`
-    : "/api/user/quizzes/remaining-homework";
-
-  const {
-    data: homeworkData,
-    loading: homeworkLoading,
-    error: homeworkError,
-  } = useGet(remainingUrl);
-
-  const {
-    data: extraData,
-    loading: extraLoading,
-    error: extraError,
-    refetch: refetchExtra,
-  } = useGet(EXTRA_HOMEWORK_URL);
-
-  const { postData } = usePost();
-
-  // ─── 3) useMemo للـ transformations ───────────────────────
-  const lessons = useMemo(
-    () => lessonsData?.data?.lessons || [],
-    [lessonsData],
-  );
-  const homework = homeworkData?.data || {};
-  const quizzes = homework.quizzes || [];
-  const summary = homework.summary || { total: 0, solved: 0, remaining: 0 };
-
-  // الـ response ممكن ييجي data.data أو data مباشرة
-  const extra = useMemo(() => {
-    const payload = extraData?.data?.data || extraData?.data || {};
-    const list = Array.isArray(payload.homework) ? payload.homework : [];
-    return {
-      summary: payload.summary || {
-        total: list.length,
-        pendingCount: 0,
-        submittedCount: 0,
-        gradedCount: 0,
-      },
-      list,
-    };
-  }, [extraData]);
-
-  // ─── 4) useEffect ─────────────────────────────────────────
-  useEffect(() => {
-    if (selectedLessonId && lessons.length > 0) {
-      setSelectedLesson(lessons.find((l) => l.id === selectedLessonId) || null);
-    } else {
-      setSelectedLesson(null);
-    }
-  }, [selectedLessonId, lessons]);
-
-  // ─── 5) Functions ─────────────────────────────────────────
-  const handleSelectLesson = (lessonId) => setSearchParams({ lessonId });
-  const handleClearFilter = () => setSearchParams({});
-
-  const handleStartQuiz = async (quizId) => {
-    if (startingQuizIds[quizId]) return;
-
-    setStartingQuizIds((prev) => ({ ...prev, [quizId]: true }));
+  const pick = (f) => {
+    if (!f) return;
+    if (f.type !== "application/pdf") { setFile(null); setError("Choose a PDF file."); return; }
+    if (f.size > MAX_PDF_SIZE_MB * 1024 * 1024) { setFile(null); setError(`The file is larger than ${MAX_PDF_SIZE_MB} MB. Compress it and try again.`); return; }
+    setError("");
+    setFile(f);
+  };
+  const submit = async () => {
+    if (!file) { setError("Attach your solution PDF before submitting."); return; }
+    setSending(true);
     try {
-      const res = await postData(
-        {},
-        `/api/user/quizzes/${quizId}/start`,
-        "Quiz started successfully!",
-      );
-      if (res) navigate(`/user/quiz/${quizId}`);
+      const pdf = await fileToBase64(file);
+      await api.post(`/api/user/extra-homework/${item.homeworkId}/submit`, { pdf, studentNotes: notes.trim() });
+      onDone();
     } catch (err) {
-      console.error("Failed to start quiz:", err);
+      setError(err?.response?.data?.error?.message || "Could not submit the homework.");
     } finally {
-      setStartingQuizIds((prev) => {
-        const next = { ...prev };
-        delete next[quizId];
-        return next;
-      });
+      setSending(false);
     }
   };
-
-  const updateUpload = (id, patch) =>
-    setUploads((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-
-  const handleFileChange = (id, file) => {
-    if (!file) return;
-    if (file.type !== "application/pdf") {
-      updateUpload(id, { file: null, error: "Choose a PDF file." });
-      return;
-    }
-    if (file.size > MAX_PDF_SIZE_MB * 1024 * 1024) {
-      updateUpload(id, {
-        file: null,
-        error: `The file is larger than ${MAX_PDF_SIZE_MB} MB. Compress it and try again.`,
-      });
-      return;
-    }
-    updateUpload(id, { file, error: null });
-  };
-
-  // تحميل الـ PDF؛ لو الـ CORS منع التحميل المباشر بنفتحه في tab جديدة
-  const handleDownload = async (url, title) => {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = `${title || "homework"}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-  };
-
-  const handleSubmit = async (item) => {
-    const id = item[SUBMIT_ID_KEY];
-    const state = uploads[id] || {};
-    if (!state.file) {
-      updateUpload(id, {
-        error: "Attach your solution PDF before submitting.",
-      });
-      return;
-    }
-
-    updateUpload(id, { submitting: true, error: null });
-    try {
-      const pdf = await fileToBase64(state.file);
-      await postData(
-        { pdf, studentNotes: state.notes?.trim() || "" },
-        `/api/user/extra-homework/${id}/submit`,
-        "Homework submitted",
-      );
-
-      setLocalSubmitted((prev) => ({
-        ...prev,
-        [id]: {
-          submittedAt: new Date().toISOString(),
-          studentNotes: state.notes,
-        },
-      }));
-      setUploads((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      refetchExtra?.();
-    } catch (err) {
-      updateUpload(id, {
-        submitting: false,
-        error:
-          err?.response?.data?.message ||
-          err?.message ||
-          "Submission failed. Check your connection and try again.",
-      });
-    }
-  };
-
-  // ─── 6) Early returns بعد كل الـ hooks ─────────────────────
-  if (lessonsLoading || homeworkLoading) return <Loader />;
-  if (lessonsError || homeworkError)
-    return <Errorpage error={lessonsError || homeworkError} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">
-            📚 Remaining Homework
-          </h1>
-          <p className="text-slate-600">
-            Track your pending assignments and complete them on time
-          </p>
+    <Modal
+      title="Submit homework"
+      onClose={onClose}
+      actions={<>
+        <button className="pl-btn" onClick={onClose}>Cancel</button>
+        <button className="pl-btn primary" onClick={submit} disabled={sending}>{sending ? "Submitting…" : "Submit"}</button>
+      </>}
+    >
+      <p className="mb-3">Submit <b>{item.title}</b>? Your teacher will grade it.</p>
+      <label className="text-xs font-bold">Your answers (PDF, up to {MAX_PDF_SIZE_MB} MB)</label>
+      <input type="file" accept="application/pdf,.pdf" className="input mt-1" onChange={(e) => pick(e.target.files?.[0])} />
+      <label className="text-xs font-bold mt-3 block">Notes for your teacher (optional)</label>
+      <textarea rows={2} className="input mt-1" value={notes} onChange={(e) => setNotes(e.target.value)}></textarea>
+      {error && <p className="text-sm font-semibold text-red-600 mt-2">{error}</p>}
+    </Modal>
+  );
+}
+
+export default function Remaining() {
+  const navigate = useNavigate();
+  const { showToast, reloadCounts } = useStudentData();
+  const [params, setParams] = useSearchParams();
+  const lessonId = params.get("lessonId");
+  const [filter, setFilter] = useState("todo");
+  const [source, setSource] = useState("all");
+  const [submitting, setSubmitting] = useState(null);
+  const [starting, setStarting] = useState(null);
+
+  const { data: lessonsData } = useGet("/api/user/lessons/purchased");
+  const { data: quizData, loading: quizLoading } = useGet(lessonId ? `/api/user/quizzes/remaining-homework?lessonId=${lessonId}` : "/api/user/quizzes/remaining-homework");
+  const { data: extraData, loading: extraLoading, refetch: refetchExtra } = useGet("/api/user/extra-homework");
+
+  const lessons = lessonsData?.data?.lessons || [];
+  const selectedLesson = lessonId ? lessons.find((l) => l.id === lessonId) || null : null;
+  const pickLesson = (id) => setParams(id ? { lessonId: id } : {});
+  const quizSummary = quizData?.data?.summary || { total: 0, solved: 0, remaining: 0 };
+  const extra = useMemo(() => {
+    const payload = extraData?.data?.data || extraData?.data || {};
+    return Array.isArray(payload.homework) ? payload.homework : [];
+  }, [extraData]);
+
+  const now = new Date();
+  const rows = useMemo(() => {
+    const ex = extra.map((h) => {
+      const done = h.status !== "assigned";
+      const due = h.dueDate ? new Date(h.dueDate) : null;
+      return { kind: "extra", h, done, late: !done && due && due < now, sort: `${done ? "2" : "0"}${h.dueDate || "9999"}` };
+    });
+    const qz = (quizData?.data?.quizzes || []).map((q) => {
+      const due = q.dueDate ? new Date(q.dueDate) : null;
+      return { kind: "quiz", q, done: false, late: due && due < now, sort: `1${q.dueDate || "9999"}` };
+    });
+    return ex.concat(qz).sort((a, b) => a.sort.localeCompare(b.sort));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extra, quizData]);
+
+  // A picked lesson shows that lesson's quizzes only (extra H.W isn't tied to one lesson).
+  const mine = rows.filter((x) => (lessonId ? x.kind === "quiz" : source === "all" || x.kind === source));
+  const todo = mine.filter((x) => !x.done);
+  const done = mine.filter((x) => x.done);
+  const list = filter === "todo" ? todo : filter === "done" ? done : mine;
+  const left = rows.filter((x) => !x.done);
+  const xLeft = left.filter((x) => x.kind === "extra").length;
+  const late = left.filter((x) => x.late).length;
+  const doneCount = rows.filter((x) => x.done).length + (quizSummary.solved || 0);
+
+  const startQuiz = async (id) => {
+    setStarting(id);
+    try {
+      await api.post(`/api/user/quizzes/${id}/start`, {});
+      navigate(`/user/quiz/${id}`);
+    } catch (err) {
+      showToast(err?.response?.data?.error?.message || "Could not start the quiz");
+    } finally {
+      setStarting(null);
+    }
+  };
+
+  const chip = (k, l, n) => (
+    <button key={k} onClick={() => setFilter(k)} className={`px-3.5 py-1.5 rounded-full text-xs font-bold border ${filter === k ? "bg-one text-white border-one" : "bg-white text-slate-600 border-slate-200 hover:border-one hover:text-one"}`}>
+      {l} <span className={filter === k ? "text-white/70" : "text-slate-400"}>{n}</span>
+    </button>
+  );
+  const seg = (k, l, n) => (
+    <button key={k} onClick={() => setSource(k)} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold ${source === k ? "bg-white text-one shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
+      {l} <span className="text-slate-400">· {n}</span>
+    </button>
+  );
+
+  const row = (x) => {
+    if (x.kind === "extra") {
+      const h = x.h;
+      return (
+        <div key={`x-${h.homeworkId}`} className="flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-2 px-5 py-4 border-t border-slate-100 first:border-0 hover:bg-slate-50">
+          <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${x.done ? "bg-green-50 text-green-600" : x.late ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}`}><Icon name="homework" size={18} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-slate-900"><span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 align-middle mr-1">EXTRA H.W</span>{h.title}</p>
+            {h.description && <p className="text-xs text-slate-500">{h.description}</p>}
+            <div className="flex flex-wrap gap-2 mt-1">
+              {h.pdfUrl && <button onClick={() => download(h.pdfUrl, h.title)} className="text-[11px] font-semibold px-2 py-0.5 rounded bg-red-50 text-one hover:underline">📄 Homework PDF</button>}
+              {h.link && <a href={h.link} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 hover:underline">🔗 Open link</a>}
+              {h.submittedPdf && <a href={h.submittedPdf} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-50 text-green-700 hover:underline">✓ Your submission</a>}
+            </div>
+            {h.status === "graded" && h.feedback && <p className="text-xs text-slate-600 mt-1">Teacher: “{h.feedback}”</p>}
+          </div>
+          <div className="text-right shrink-0">
+            {h.status === "graded"
+              ? <><p className="text-sm font-extrabold text-green-600">{h.score ?? "—"}</p><p className="text-[11px] text-slate-400">Graded</p></>
+              : h.status === "submitted"
+                ? <><p className="text-sm font-bold text-green-700">Submitted</p><p className="text-[11px] text-slate-400">Waiting for a grade</p></>
+                : h.dueDate
+                  ? <><p className={`text-sm font-bold ${x.late ? "text-red-600" : "text-slate-800"}`}>{x.late ? "Overdue" : `Due ${dueLabel(h.dueDate)}`}</p><p className="text-[11px] text-slate-400">{dueTime(h.dueDate)}</p></>
+                  : <p className="text-sm font-bold text-slate-800">To do</p>}
+          </div>
+          {!x.done && <button className="btn-mini primary shrink-0" onClick={() => setSubmitting(h)}>Submit</button>}
         </div>
+      );
+    }
+    const q = x.q;
+    return (
+      <div key={`q-${q.id}`} className="flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-2 px-5 py-4 border-t border-slate-100 first:border-0 hover:bg-slate-50">
+        <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${x.late ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"}`}><Icon name="exam" size={18} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-slate-900 truncate"><span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 align-middle mr-1">QUIZ</span>{q.title || q.name}</p>
+          <p className="text-xs text-slate-500 truncate">{[q.description, q.durationMinutes ? `${q.durationMinutes} min` : "", q.totalScore ? `${q.totalScore} points` : ""].filter(Boolean).join(" · ")}</p>
+        </div>
+        <div className="text-right shrink-0">
+          {q.dueDate
+            ? <><p className={`text-sm font-bold ${x.late ? "text-red-600" : "text-slate-800"}`}>{x.late ? "Overdue" : `Due ${dueLabel(q.dueDate)}`}</p><p className="text-[11px] text-slate-400">{dueTime(q.dueDate)}</p></>
+            : <p className="text-sm font-bold text-slate-800">To do</p>}
+        </div>
+        <button className="btn-mini primary shrink-0" onClick={() => startQuiz(q.id)} disabled={starting === q.id}>{starting === q.id ? "Starting…" : "Solve"}</button>
+      </div>
+    );
+  };
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Panel - Purchased Lessons */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden sticky top-6">
-              <div className="p-6 bg-one text-white">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5" />
-                  <h2 className="text-lg font-bold">
-                    Purchased Lessons ({lessons.length})
-                  </h2>
-                </div>
-              </div>
-
-              <div className="divide-y max-h-[600px] overflow-y-auto">
-                {lessons.length === 0 ? (
-                  <div className="p-6 text-center text-slate-500">
-                    <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No purchased lessons yet</p>
-                  </div>
-                ) : (
-                  <>
-                    {selectedLessonId && (
-                      <button
-                        onClick={handleClearFilter}
-                        className="w-full p-4 text-left hover:bg-slate-50 transition-colors border-b flex items-center justify-between group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-one" />
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">
-                              All Lessons
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Show all remaining homework
-                            </p>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </button>
-                    )}
-
-                    {lessons.map((lesson) => {
-                      const isSelected = selectedLessonId === lesson.id;
-                      const isExpired = lesson.status === "expired";
-
-                      return (
-                        <button
-                          key={lesson.id}
-                          onClick={() => handleSelectLesson(lesson.id)}
-                          className={`w-full p-4 text-left hover:bg-slate-50 transition-all border-b flex items-start justify-between group ${
-                            isSelected ? "bg-one/5 border-l-4 border-l-one" : ""
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 truncate">
-                              {lesson.name}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1">
-                              {lesson.courseName}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {lesson.chapterName}
-                            </p>
-                            {isExpired && (
-                              <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 text-xs bg-red-50 text-red-600 rounded font-medium">
-                                ⏰ Expired
-                              </span>
-                            )}
-                          </div>
-                          {isSelected && (
-                            <CheckCircle2 className="w-5 h-5 text-one shrink-0 ml-2" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            </div>
+  return (
+    <Page wide>
+      <PageHead title="Remaining H.W" text="Everything you still have to do — extra H.W from your teachers and quizzes from your lessons." />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <Kpi label="Remaining" value={left.length} sub="to do" tone={left.length ? "red" : "green"} />
+        <Kpi label="Extra H.W" value={xLeft} sub="to submit" />
+        <Kpi label="Overdue" value={late} sub="past the due date" tone={late ? "red" : ""} />
+        <Kpi label="Done" value={doneCount} sub="submitted or solved" tone="green" />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        {/* Purchased lessons — pick one to see only its homework */}
+        <aside className="bg-white border border-slate-200 rounded-2xl overflow-hidden lg:sticky lg:top-20">
+          <div className="px-5 py-4 bg-one text-white flex items-center gap-2">
+            <Icon name="book" size={18} />
+            <h2 className="font-bold">Purchased Lessons ({lessons.length})</h2>
           </div>
-
-          {/* Right Panel */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 font-medium">Total</p>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">
-                      {summary.total}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-one/10 rounded-lg">
-                    <BookOpen className="w-6 h-6 text-one" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 font-medium">Solved</p>
-                    <p className="text-3xl font-bold text-green-600 mt-1">
-                      {summary.solved}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-green-50 rounded-lg">
-                    <CheckCircle2 className="w-6 h-6 text-green-600" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 font-medium">
-                      Remaining
-                    </p>
-                    <p className="text-3xl font-bold text-amber-600 mt-1">
-                      {summary.remaining}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-amber-50 rounded-lg">
-                    <AlertCircle className="w-6 h-6 text-amber-600" />
-                  </div>
-                </div>
-              </div>
+          {lessons.length === 0 ? (
+            <div className="p-6 text-center text-sm text-slate-500">
+              <p>No purchased lessons yet</p>
+              <button className="text-xs font-bold text-one hover:underline mt-2" onClick={() => navigate("/user/payment")}>Open the store →</button>
             </div>
-
-            {/* Quizzes Homework List */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-5 h-5 text-slate-600" />
-                  <h3 className="text-lg font-bold text-slate-900">
-                    {selectedLesson
-                      ? `Homework for "${selectedLesson.name}"`
-                      : "All Remaining Homework"}
-                  </h3>
-                </div>
-                {selectedLesson && (
-                  <button
-                    onClick={handleClearFilter}
-                    className="text-xs px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium"
-                  >
-                    Clear Filter
+          ) : (
+            <div className="max-h-64 lg:max-h-[600px] overflow-y-auto divide-y divide-slate-100">
+              <button onClick={() => pickLesson(null)} className={`w-full px-5 py-3 text-left flex items-center gap-3 hover:bg-slate-50 ${!lessonId ? "bg-red-50/60 border-l-4 border-l-one" : ""}`}>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${!lessonId ? "bg-one" : "bg-slate-300"}`}></span>
+                <span className="min-w-0"><span className="block text-sm font-semibold text-slate-900">All lessons</span><span className="block text-xs text-slate-500">All remaining homework</span></span>
+              </button>
+              {lessons.map((l) => {
+                const on = lessonId === l.id;
+                return (
+                  <button key={l.id} onClick={() => pickLesson(l.id)} aria-pressed={on}
+                    className={`w-full px-5 py-3 text-left flex items-start justify-between gap-2 hover:bg-slate-50 ${on ? "bg-red-50/60 border-l-4 border-l-one" : ""}`}>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-900">{l.name}</span>
+                      {l.courseName && <span className="block text-xs text-slate-500 mt-0.5">{l.courseName}</span>}
+                      {l.chapterName && <span className="block text-xs text-slate-400">{l.chapterName}</span>}
+                      {l.status === "expired" && <span className="inline-block mt-1.5 px-2 py-0.5 text-[11px] font-semibold rounded bg-red-50 text-red-600">⏰ Expired</span>}
+                    </span>
+                    {on && <Icon name="check" size={18} className="text-one mt-0.5" />}
                   </button>
-                )}
-              </div>
-
-              {quizzes.length === 0 ? (
-                <div className="p-12 text-center">
-                  <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-500 opacity-20" />
-                  <h4 className="text-lg font-semibold text-slate-900 mb-2">
-                    {selectedLesson
-                      ? `No homework for "${selectedLesson.name}"`
-                      : "No remaining homework"}
-                  </h4>
-                  <p className="text-slate-600 max-w-md mx-auto">
-                    {selectedLesson
-                      ? "You have completed all assignments for this lesson!"
-                      : "You have completed all your assignments. Great job! 🎉"}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {quizzes.map((quiz, index) => (
-                    <div
-                      key={quiz.id || index}
-                      className="p-6 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="inline-flex items-center justify-center w-8 h-8 bg-one/10 text-one rounded-lg font-bold text-sm">
-                              {index + 1}
-                            </span>
-                            <h4 className="text-base font-semibold text-slate-900">
-                              {quiz.title || quiz.name || "Untitled Quiz"}
-                            </h4>
-                          </div>
-                          <p className="text-sm text-slate-600 ml-11">
-                            {quiz.description || "No description provided"}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleStartQuiz(quiz.id)}
-                          disabled={startingQuizIds[quiz.id]}
-                          className="px-4 py-2 bg-one text-white text-sm font-medium rounded-lg hover:bg-one/90 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-one/40 focus-visible:ring-offset-2 transition-colors shadow-sm"
-                        >
-                          {startingQuizIds[quiz.id] ? "Starting..." : "Start Now"}
-                        </button>
-                      </div>
-
-                      <div className="ml-11 flex flex-wrap gap-4 text-sm text-slate-600 mt-3">
-                        {quiz.durationMinutes && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-4 h-4" />
-                            <span>{quiz.durationMinutes} minutes</span>
-                          </div>
-                        )}
-                        {quiz.totalScore && (
-                          <div className="flex items-center gap-1">
-                            <span className="font-semibold">
-                              Score: {quiz.totalScore}
-                            </span>
-                          </div>
-                        )}
-                        {quiz.dueDate && (
-                          <div className="flex items-center gap-1">
-                            <AlertCircle className="w-4 h-4 text-amber-500" />
-                            <span>
-                              Due: {new Date(quiz.dueDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                );
+              })}
             </div>
+          )}
+        </aside>
 
-            {/* ─── Extra Homework ─────────────────────────────── */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-6 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-one" />
-                  <h3 className="text-lg font-bold text-slate-900">
-                    Extra Homework ({extra.summary.total || extra.list.length})
-                  </h3>
-                </div>
-                <div className="flex gap-2 text-xs font-medium">
-                  <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700">
-                    {extra.summary.pendingCount ?? 0} pending
-                  </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700">
-                    {extra.summary.submittedCount ?? 0} submitted
-                  </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-green-50 text-green-700">
-                    {extra.summary.gradedCount ?? 0} graded
-                  </span>
-                </div>
-              </div>
-
-              {extraLoading ? (
-                <div className="p-10 text-center text-slate-500 text-sm">
-                  Loading extra homework…
-                </div>
-              ) : extraError ? (
-                <div className="p-10 text-center">
-                  <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-500" />
-                  <p className="text-sm text-slate-700 mb-3">
-                    Extra homework couldn't be loaded.
-                  </p>
-                  {refetchExtra && (
-                    <button
-                      onClick={() => refetchExtra()}
-                      className="text-sm px-4 py-2 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium"
-                    >
-                      Try again
-                    </button>
-                  )}
-                </div>
-              ) : extra.list.length === 0 ? (
-                <div className="p-10 text-center text-slate-500">
-                  <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">
-                    No extra homework assigned to you right now.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {extra.list.map((item) => {
-                    const id = item[SUBMIT_ID_KEY];
-                    const local = localSubmitted[id];
-                    const status =
-                      local && item.status === "assigned"
-                        ? "submitted"
-                        : item.status;
-                    const statusStyle =
-                      STATUS_STYLES[status] || STATUS_STYLES.assigned;
-                    const isPending = status === "assigned";
-                    const isOverdue =
-                      isPending &&
-                      item.dueDate &&
-                      new Date(item.dueDate) < new Date();
-                    const upload = uploads[id] || {};
-                    const inputId = `extra-pdf-${id}`;
-
-                    return (
-                      <div key={item.assignmentId || id} className="p-6">
-                        {/* Title + status */}
-                        <div className="flex items-start justify-between gap-4 mb-2">
-                          <div className="min-w-0">
-                            <h4 className="text-base font-semibold text-slate-900">
-                              {item.title || "Untitled homework"}
-                            </h4>
-                            {item.description && (
-                              <p className="text-sm text-slate-600 mt-1">
-                                {item.description}
-                              </p>
-                            )}
-                          </div>
-                          <span
-                            className={`shrink-0 px-2.5 py-1 text-xs font-semibold rounded-lg ${statusStyle.className}`}
-                          >
-                            {statusStyle.label}
-                          </span>
-                        </div>
-
-                        {item.dueDate && (
-                          <div
-                            className={`flex items-center gap-1.5 text-sm mb-4 ${
-                              isOverdue ? "text-red-600" : "text-slate-600"
-                            }`}
-                          >
-                            <Clock className="w-4 h-4" />
-                            <span>
-                              {isOverdue ? "Overdue since " : "Due "}
-                              {formatDateTime(item.dueDate)}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Materials: PDF + link */}
-                        {(item.pdfUrl || item.link) && (
-                          <div className="flex flex-wrap gap-2 mb-4">
-                            {item.pdfUrl && (
-                              <>
-                                <a
-                                  href={item.pdfUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-one/5 text-one hover:bg-one/10 transition-colors"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                  View PDF
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleDownload(item.pdfUrl, item.title)
-                                  }
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
-                                >
-                                  <Download className="w-4 h-4" />
-                                  Download PDF
-                                </button>
-                              </>
-                            )}
-                            {item.link && (
-                              <a
-                                href={item.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                                Open link
-                              </a>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Upload & submit (pending only) */}
-                        {isPending && (
-                          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 space-y-3">
-                            <p className="text-sm font-semibold text-slate-800">
-                              Upload your solution
-                            </p>
-
-                            {upload.file ? (
-                              <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <FileText className="w-5 h-5 text-red-500 shrink-0" />
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium text-slate-800 truncate">
-                                      {upload.file.name}
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                      {formatSize(upload.file.size)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateUpload(id, { file: null })
-                                  }
-                                  disabled={upload.submitting}
-                                  className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-                                  aria-label="Remove file"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ) : (
-                              <label
-                                htmlFor={inputId}
-                                className="flex flex-col items-center justify-center gap-1 py-6 bg-white border border-slate-200 rounded-lg cursor-pointer hover:border-one/50 focus-within:ring-2 focus-within:ring-one/40 transition-colors"
-                              >
-                                <Upload className="w-6 h-6 text-slate-400" />
-                                <span className="text-sm font-medium text-slate-700">
-                                  Choose a PDF file
-                                </span>
-                                <span className="text-xs text-slate-500">
-                                  PDF only, up to {MAX_PDF_SIZE_MB} MB
-                                </span>
-                                <input
-                                  id={inputId}
-                                  type="file"
-                                  accept="application/pdf"
-                                  className="sr-only"
-                                  onChange={(e) => {
-                                    handleFileChange(id, e.target.files?.[0]);
-                                    e.target.value = "";
-                                  }}
-                                />
-                              </label>
-                            )}
-
-                            <textarea
-                              rows={2}
-                              value={upload.notes || ""}
-                              onChange={(e) =>
-                                updateUpload(id, { notes: e.target.value })
-                              }
-                              disabled={upload.submitting}
-                              placeholder="Notes for your teacher (optional)"
-                              className="w-full text-sm rounded-lg border border-slate-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-one/40 disabled:opacity-60"
-                            />
-
-                            {upload.error && (
-                              <p className="flex items-center gap-1.5 text-sm text-red-600">
-                                <AlertCircle className="w-4 h-4 shrink-0" />
-                                {upload.error}
-                              </p>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => handleSubmit(item)}
-                              disabled={!upload.file || upload.submitting}
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-one text-white text-sm font-medium rounded-lg hover:bg-one/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-one/40 focus-visible:ring-offset-2 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Send className="w-4 h-4" />
-                              {upload.submitting
-                                ? "Submitting…"
-                                : "Submit homework"}
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Submitted / graded info */}
-                        {!isPending && (
-                          <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-2 text-sm">
-                            <p className="flex items-center gap-1.5 text-slate-700">
-                              <CheckCircle2 className="w-4 h-4 text-green-600" />
-                              Submitted{" "}
-                              {formatDateTime(
-                                item.submittedAt || local?.submittedAt,
-                              )}
-                            </p>
-                            {item.submittedPdf && (
-                              <a
-                                href={item.submittedPdf}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 text-one font-medium hover:underline"
-                              >
-                                <FileText className="w-4 h-4" />
-                                View your submission
-                              </a>
-                            )}
-                            {(item.studentNotes || local?.studentNotes) && (
-                              <p className="text-slate-600">
-                                <span className="font-medium">
-                                  Your notes:{" "}
-                                </span>
-                                {item.studentNotes || local?.studentNotes}
-                              </p>
-                            )}
-                            {status === "graded" && (
-                              <div className="pt-2 mt-2 border-t border-slate-200 space-y-1">
-                                {item.score !== null &&
-                                  item.score !== undefined && (
-                                    <p className="flex items-center gap-1.5 font-semibold text-green-700">
-                                      <Award className="w-4 h-4" />
-                                      Score: {item.score}
-                                    </p>
-                                  )}
-                                {item.feedback && (
-                                  <p className="flex items-start gap-1.5 text-slate-700">
-                                    <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                                    {item.feedback}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+        <div className="lg:col-span-2 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h3 className="text-base font-bold text-slate-900 min-w-0">{selectedLesson ? <>Homework for “{selectedLesson.name}”</> : "All remaining homework"}</h3>
+            {selectedLesson && <button className="pl-btn" onClick={() => pickLesson(null)}>Clear filter</button>}
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div className="flex flex-wrap gap-2">{chip("todo", "Remaining", todo.length)}{chip("done", "Done", done.length)}{chip("all", "All", mine.length)}</div>
+            {!lessonId && (
+              <div className="flex flex-wrap gap-1 bg-slate-100 rounded-xl p-1">
+                {seg("all", "All", rows.length)}{seg("extra", "Extra H.W", rows.filter((x) => x.kind === "extra").length)}{seg("quiz", "Quizzes", rows.filter((x) => x.kind === "quiz").length)}
+              </div>
+            )}
+          </div>
+          {quizLoading || extraLoading ? <div className="skel h-48"></div> : list.length ? (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">{list.map(row)}</div>
+          ) : (
+            <section className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+              <p className="text-lg font-extrabold text-gray-900 mb-1">{filter === "todo" ? "All caught up 🎉" : "Nothing here yet"}</p>
+              <p className="text-sm text-slate-500">
+                {selectedLesson ? "This lesson has no quizzes left to solve." : filter === "todo" ? "You have no homework left to do." : "Your homework shows up here."}
+              </p>
+            </section>
+          )}
         </div>
       </div>
-    </div>
+      {submitting && (
+        <SubmitModal
+          item={submitting}
+          onClose={() => setSubmitting(null)}
+          onDone={() => { setSubmitting(null); refetchExtra?.(); reloadCounts(); showToast("Submitted — your teacher will grade it"); }}
+        />
+      )}
+    </Page>
   );
-};
-
-export default Remaining;
+}

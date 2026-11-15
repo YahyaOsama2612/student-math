@@ -19,6 +19,8 @@ import Message from "../Auth/Message";
 
 import History from "../pages/Attent/History";
 import Upcoming from '../pages/Attent/Upcoming'
+import SessionDetail from "../pages/Attent/SessionDetail";
+import ClassMaterials from "../pages/Attent/ClassMaterials";
 import Diagnostic from "../pages/Exams/Diagnostic";
 import ActiveExam from "../pages/Exams/ActiveExam";
 import Review from "../pages/Exams/Review";
@@ -107,6 +109,14 @@ const router = createBrowserRouter([
       {
         path: "upcoming",
         element: <Upcoming />,
+      },
+      {
+        path: "session/:id",
+        element: <SessionDetail />,
+      },
+      {
+        path: "materials",
+        element: <ClassMaterials />,
       },
       {
         path: "promo",

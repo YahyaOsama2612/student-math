@@ -1,547 +1,160 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Calendar,
-  Clock,
-  BookOpen,
-  RefreshCcw,
-  Archive,
-  CheckCircle2,
-  XCircle,
-  ArrowRight,
-  MinusCircle,
-  Eye,
-  X,
-  Star,
-  FileText,
-  GraduationCap,
-  Link2,
-} from "lucide-react";
-import useGet from "@/hooks/useGet";
-import Loading from "../../components/Loading";
-import Errorpage from "../../components/Errorpage";
+import { useStudentData } from "@/context/StudentData";
+import { fmtDay, fmtTime } from "@/lib/portal";
+import Icon from "@/components/portal/Icon";
+import { EmptyCard, Kpi, LiveStrip, Page, PageHead, StarRow, TeacherAvatar, TypeDot } from "@/components/portal/ui";
 import SessionRatingModal from "./SessionRatingModal";
-import SessionRatingsHistory from "./SessionRatingsHistory";
-import SecurePdfViewer, { SecureEmbed } from "./SecurePdfViewer";
 
-// Import AOS for animations
-import AOS from "aos";
-import "aos/dist/aos.css";
+/** Ratings are stored 1–10; the design shows 5 stars. */
+export const toStars = (r) => Math.round((Number(r?.overallRating) || 0) / 2 * 10) / 10;
+const qStars = (v) => Math.round((Number(v) || 0) / 2 * 10) / 10;
 
-const BRAND = "#7d0a0a";
+/** A finished session can be rated unless it was cancelled or the student was marked absent
+    (teachers don't always mark attendance, so "not marked" can still be rated — as before). */
+const canRate = (s) => !s.cancelled && s.attendance !== "absent";
 
-const History = () => {
-  const navigate = useNavigate();
-  const { data, loading, error, refetch } = useGet(
-    "/api/user/sessions/history",
-  );
+function Attendance({ s }) {
+  if (s.cancelled) return <span className="text-xs font-semibold text-slate-400">Cancelled</span>;
+  if (s.attendance === "present") return <span className="att yes">✓ Attended</span>;
+  if (s.attendance === "absent") return <span className="att no">✕ Missed</span>;
+  return <span className="text-xs font-semibold text-slate-400">Not marked</span>;
+}
 
-  // State for modals
-  // type: "pdf" -> rendered with pdf.js (no toolbar) | "embed" -> sandboxed iframe
-  const [previewModal, setPreviewModal] = useState({
-    isOpen: false,
-    url: "",
-    title: "",
-    type: "pdf",
-  });
-  const [ratingModal, setRatingModal] = useState({
-    isOpen: false,
-    sessionId: null,
-    sessionName: null,
-  });
-  const [showRatings, setShowRatings] = useState(false);
-  const modalRef = useRef(null);
-
-  // Convert Google Drive URL to embeddable format (other URLs are returned as-is)
-  const getEmbedUrl = (url) => {
-    if (!url) return "";
-    if (url.includes("drive.google.com")) {
-      const driveIdMatch =
-        url.match(/\/d\/([^/]+)/) || url.match(/id=([^&]+)/);
-      if (driveIdMatch && driveIdMatch[1]) {
-        return `https://drive.google.com/file/d/${driveIdMatch[1]}/preview`;
-      }
-    }
-    return url;
-  };
-
-  // Backend-uploaded PDFs (e.g. https://bcknd.mathshouse.net/uploads/...pdf)
-  const isBackendPdf = (url) =>
-    /\.pdf(\?|#|$)/i.test(url) || url.includes("bcknd.mathshouse.net/uploads");
-
-  const handlePreview = (rawUrl, title) => {
-    setPreviewModal({
-      isOpen: true,
-      url: isBackendPdf(rawUrl) ? rawUrl : getEmbedUrl(rawUrl),
-      title,
-      type: isBackendPdf(rawUrl) ? "pdf" : "embed",
-    });
-  };
-
-  const closePreview = () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    setPreviewModal({ isOpen: false, url: "", title: "", type: "pdf" });
-  };
-
-  // While the preview is open: block Save / Print shortcuts and hide the page on print
-  useEffect(() => {
-    if (!previewModal.isOpen) return;
-
-    const onKeyDown = (e) => {
-      const key = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(key)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-
-    const style = document.createElement("style");
-    style.innerHTML = "@media print { body { display: none !important; } }";
-    document.head.appendChild(style);
-
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      style.remove();
-    };
-  }, [previewModal.isOpen]);
-
-  const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      modalRef.current?.requestFullscreen().catch((err) => console.error(err));
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
-  // Time comes correct from the backend — just format it as-is: "11:30:00" -> "11:30 AM"
-  const formatUTCTime = (timeStr) => {
-    if (!timeStr) return "";
-    const [h, m] = timeStr.split(":").map((v) => parseInt(v, 10));
-    const hours24 = h || 0;
-    const minutes = m || 0;
-    const period = hours24 >= 12 ? "PM" : "AM";
-    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
-    return `${String(hours12).padStart(2, "0")}:${String(minutes).padStart(
-      2,
-      "0",
-    )} ${period}`;
-  };
-
-  // Date as sent by the backend (formatted in UTC so the day never shifts)
-  const formatSessionDate = (dateStr) => {
-    if (!dateStr) return "";
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  };
-
-  // Get attendance status styling
-  const getAttendanceStatus = (status) => {
-    const s = status ? status.toLowerCase() : "";
-
-    if (!s || s === "not_marked") {
-      return {
-        label: "Not Marked",
-        bg: "bg-slate-100",
-        text: "text-slate-600",
-        dot: "bg-slate-400",
-        icon: <MinusCircle size={14} />,
-      };
-    }
-    if (s === "attended" || s === "present") {
-      return {
-        label: "Attended",
-        bg: "bg-emerald-50",
-        text: "text-emerald-700",
-        dot: "bg-emerald-500",
-        icon: <CheckCircle2 size={14} />,
-      };
-    }
-    if (s === "absent" || s === "missed") {
-      return {
-        label: "Missed",
-        bg: "bg-red-50",
-        text: "text-red-700",
-        dot: "bg-red-500",
-        icon: <XCircle size={14} />,
-      };
-    }
-
-    return {
-      label: status.replace(/_/g, " "),
-      bg: "bg-blue-50",
-      text: "text-blue-700",
-      dot: "bg-blue-500",
-      icon: <CheckCircle2 size={14} />,
-    };
-  };
-
-  useEffect(() => {
-    AOS.init({
-      duration: 800,
-      once: true,
-      easing: "ease-out-quad",
-    });
-  }, []);
-
-  if (error) {
-    return <Errorpage />;
-  }
-
-  const handleOpenRatingModal = (sessionId, sessionName) => {
-    setRatingModal({ isOpen: true, sessionId, sessionName });
-  };
-
-  const handleCloseRatingModal = () => {
-    setRatingModal({ isOpen: false, sessionId: null, sessionName: null });
-  };
-
-  const handleRatingSuccess = () => {
-    refetch();
-  };
-
-  // One material button (disabled when the link is missing)
-  const MaterialButton = ({ url, label, icon: Icon, title }) => {
-    const available = Boolean(url);
-    return (
-      <button
-        type="button"
-        disabled={!available}
-        onClick={() => available && handlePreview(url, title)}
-        title={available ? label : `${label} not available yet`}
-        className={`flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-bold transition-all ${available
-          ? "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
-          : "bg-slate-50 text-slate-300 cursor-not-allowed"
-          }`}
-      >
-        <Icon size={18} style={available ? { color: BRAND } : {}} />
-        <span className="leading-tight text-center">{label}</span>
-      </button>
-    );
-  };
-
-  if (data)
-    return (
-      <div className="bg-[#F8FAFC] p-4 md:p-8 font-sans text-slate-900 min-h-screen">
-        {/* --- Header Section --- */}
-        <div className="mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div data-aos="fade-right">
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-              Session <span style={{ color: BRAND }}>History</span>
-            </h1>
-            <p className="mt-2 text-slate-500 font-medium">
-              Review your past classes and session ratings
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            {/* Ratings Tab Button */}
-            <button
-              onClick={() => setShowRatings(!showRatings)}
-              className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-yellow-200 transition-all shadow-sm active:scale-95"
-              data-aos="fade-left"
-            >
-              <Star
-                size={18}
-                style={showRatings ? { fill: BRAND, color: BRAND } : {}}
-              />
-              Ratings
-            </button>
-
-            {/* Refresh Button */}
-            <button
-              onClick={refetch}
-              disabled={loading}
-              className="group flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-2xl font-semibold text-slate-700 hover:bg-slate-50 hover:border-blue-200 transition-all shadow-sm active:scale-95 disabled:opacity-60"
-              data-aos="fade-left"
-            >
-              <RefreshCcw
-                size={18}
-                className={`${loading ? "animate-spin" : "group-hover:rotate-180"
-                  } transition-transform duration-500`}
-              />
-              Refresh
-            </button>
-          </div>
+/** "My ratings" — every rating the student sent, with each question and comment (like the old Ratings view). */
+function RatingCard({ r, onEdit }) {
+  const stars = toStars(r);
+  return (
+    <article className="rp-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-bold text-slate-900">{r.sessionName || "Session"}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {r.sessionDate ? fmtDay(String(r.sessionDate).slice(0, 10)) : ""}{r.timeFrom ? ` · ${fmtTime(String(r.timeFrom).slice(0, 5))}` : ""}{r.teacherName ? ` · ${r.teacherName}` : ""}
+          </p>
         </div>
-
-        {/* --- Ratings View --- */}
-        {showRatings && (
-          <div className="mx-auto mb-10" data-aos="fade-up">
-            <SessionRatingsHistory />
+        <div className="text-right shrink-0">
+          <div className="flex items-center gap-2 justify-end">
+            <span className="text-2xl font-extrabold text-slate-900">{stars.toFixed(1)}</span>
+            <StarRow value={stars} />
           </div>
-        )}
-
-        {/* --- Status Handlers --- */}
-        {loading && <Loading />}
-
-        {/* --- Main Content - Sessions List --- */}
-        {!showRatings && data?.success && data.data.length > 0 ? (
-          <div className="mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {data.data.map((session, index) => {
-              const statusStyle = getAttendanceStatus(session.attendanceStatus);
-
-              return (
-                <div
-                  key={session.id}
-                  data-aos="fade-up"
-                  data-aos-delay={index * 100}
-                  className="group relative bg-white border border-slate-100 rounded-[32px] p-6 shadow-sm hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1 transition-all duration-300 flex flex-col"
-                >
-                  {/* Top Row: Icon & Badge */}
-                  <div className="flex justify-between items-start mb-6">
-                    <div
-                      className="w-12 h-12 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center group-hover:text-white transition-colors duration-300"
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = BRAND)
-                      }
-                      onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "rgb(241, 245, 249)")
-                      }
-                    >
-                      <Archive size={24} />
-                    </div>
-
-                    {/* Attendance Status Badge */}
-                    <div
-                      className={`flex items-center gap-1.5 ${statusStyle.bg} ${statusStyle.text} px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 ${statusStyle.dot} rounded-full`}
-                      />
-                      {statusStyle.label}
-                    </div>
-                  </div>
-
-                  {/* Session Info */}
-                  <div className="mb-6">
-                    <h3
-                      className="text-xl font-bold text-slate-800 mb-4 transition-colors line-clamp-2"
-                      onMouseEnter={(e) => (e.currentTarget.style.color = BRAND)}
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.color = "#1e293b")
-                      }
-                    >
-                      {session.name}
-                    </h3>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3 text-slate-500">
-                        <div className="p-1.5 bg-slate-50 rounded-lg">
-                          <Calendar size={16} />
-                        </div>
-                        <span className="text-sm font-medium">
-                          {formatSessionDate(session.sessionDate)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-slate-500">
-                        <div className="p-1.5 bg-slate-50 rounded-lg">
-                          <Clock size={16} />
-                        </div>
-                        <span className="text-sm font-medium">
-                          {formatUTCTime(session.timeFrom)} —{" "}
-                          {formatUTCTime(session.timeTo)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Lessons Box */}
-                  <div className="bg-slate-50/80 rounded-2xl p-5 mb-6 flex-grow">
-                    <div className="flex items-center gap-2.5 mb-4 text-slate-700">
-                      <BookOpen size={20} style={{ color: BRAND }} />
-                      <span className="text-sm font-bold uppercase tracking-widest">
-                        Topics Covered
-                      </span>
-                    </div>
-
-                    <ul className="space-y-4">
-                      {session.lessons?.map((lesson) => (
-                        <li
-                          key={lesson.id}
-                          className="flex items-start justify-between gap-3 text-base text-slate-600"
-                        >
-                          <div className="flex items-start gap-3">
-                            <CheckCircle2
-                              size={20}
-                              className="text-emerald-500 mt-0.5 shrink-0"
-                            />
-                            <div>
-                              <span className="font-bold text-slate-800 block leading-tight text-base">
-                                {lesson.name}
-                              </span>
-                              <span className="text-xs font-medium text-slate-500 capitalize mt-1 block">
-                                {lesson.course?.name} • {lesson.chapter?.name}
-                              </span>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() =>
-                              navigate(`/user/lesson/${lesson.id}`, {
-                                state: { fromPurchases: true },
-                              })
-                            }
-                            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-                            style={{
-                              color: BRAND,
-                              backgroundColor: "rgba(125, 10, 10, 0.1)",
-                            }}
-                            onMouseEnter={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "rgba(125, 10, 10, 0.2)")
-                            }
-                            onMouseLeave={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "rgba(125, 10, 10, 0.1)")
-                            }
-                          >
-                            <Eye size={14} />
-                            Material
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Material Buttons */}
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    <MaterialButton
-                      url={session.materialLink}
-                      label="Material Link"
-                      icon={Link2}
-                      title={`${session.name} — Material`}
-                    />
-                    <MaterialButton
-                      url={session.session_pdf}
-                      label="Session PDF"
-                      icon={FileText}
-                      title={`${session.name} — Session PDF`}
-                    />
-                    <MaterialButton
-                      url={session.teacher_explanation_pdf}
-                      label="Teacher PDF"
-                      icon={GraduationCap}
-                      title={`${session.name} — Teacher PDF`}
-                    />
-                  </div>
-
-                  {/* Rating Button */}
-                  <button
-                    onClick={() =>
-                      handleOpenRatingModal(session.id, session.name)
-                    }
-                    className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold transition-all active:scale-[0.98]"
-                    style={{
-                      color: BRAND,
-                      backgroundColor: "rgba(125, 10, 10, 0.08)",
-                    }}
-                    onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor =
-                      "rgba(125, 10, 10, 0.15)")
-                    }
-                    onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor =
-                      "rgba(125, 10, 10, 0.08)")
-                    }
-                  >
-                    <Star size={18} />
-                    Rate Session
-                    <ArrowRight size={18} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          !loading &&
-          !showRatings && (
-            <div
-              className="flex flex-col items-center justify-center py-32 text-center"
-              data-aos="fade-up"
-            >
-              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-                <Archive className="text-slate-300" size={32} />
-              </div>
-              <h3 className="text-xl font-bold text-slate-800">
-                No Past Sessions
-              </h3>
-              <p className="text-slate-500 max-w-xs mx-auto mt-2">
-                You haven't attended any sessions yet. Sessions will appear here
-                after they are completed.
-              </p>
-            </div>
-          )
-        )}
-
-        {/* --- Preview Modal (view only: no new tab, no download) --- */}
-        {previewModal.isOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={closePreview}
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <div
-              ref={modalRef}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
-            >
-              <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
-                <h3 className="font-bold text-gray-900 truncate text-sm sm:text-base">
-                  {previewModal.title}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={toggleFullScreen}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-                  >
-                    Fullscreen
-                  </button>
-                  <button
-                    onClick={closePreview}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 bg-gray-900 relative min-h-0">
-                {previewModal.type === "pdf" ? (
-                  <SecurePdfViewer
-                    key={previewModal.url}
-                    url={previewModal.url}
-                    title={previewModal.title}
-                  />
-                ) : (
-                  <SecureEmbed
-                    key={previewModal.url}
-                    src={previewModal.url}
-                    title={previewModal.title}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* --- Session Rating Modal --- */}
-        {ratingModal.isOpen && (
-          <SessionRatingModal
-            sessionId={ratingModal.sessionId}
-            sessionName={ratingModal.sessionName}
-            onClose={handleCloseRatingModal}
-            onRatingSuccess={handleRatingSuccess}
-          />
-        )}
+          <button className="text-xs font-semibold text-slate-400 hover:text-one mt-1" onClick={onEdit}>Edit rating</button>
+        </div>
       </div>
-    );
-};
+      {r.generalComment && <p className="mt-3 text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">“{r.generalComment}”</p>}
+      {r.questionRatings?.length > 0 && (
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {r.questionRatings.map((q) => (
+            <div key={q.id} className="rounded-xl border border-slate-100 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800 min-w-0">{q.questionTitle}</p>
+                <span className="flex items-center gap-1.5 shrink-0"><StarRow value={qStars(q.rating)} size={13} /><span className="text-xs font-bold text-slate-500">{q.rating}/10</span></span>
+              </div>
+              {q.category && <p className="text-[11px] text-slate-400">{q.category}</p>}
+              {q.comment && <p className="text-xs text-slate-600 mt-1">💬 {q.comment}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
 
-export default History;
+export default function History() {
+  const { history, loading, ratingFor, ratings, reloadRatings, showToast } = useStudentData();
+  const navigate = useNavigate();
+  const [rating, setRating] = useState(null); // { id, topic }
+  const [tab, setTab] = useState("sessions");
+  const list = history || [];
+  const attended = list.filter((s) => s.attendance === "present");
+  const toRate = list.filter((s) => canRate(s) && !ratingFor(s.id)).length;
+  const avg = ratings.length ? (ratings.reduce((a, r) => a + toStars(r), 0) / ratings.length).toFixed(1) : "—";
+  const myRatings = useMemo(() => [...ratings].sort((a, b) => String(b.sessionDate || b.createdAt).localeCompare(String(a.sessionDate || a.createdAt))), [ratings]);
+
+  return (
+    <Page>
+      <PageHead title="Attendance history" text="Your finished sessions. Rate each one — your teacher and MathPortal read every rating.">
+        <button className="pl-btn" onClick={() => navigate("/user/upcoming")}>Upcoming sessions</button>
+      </PageHead>
+      <LiveStrip />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <Kpi label="Sessions" value={list.length} sub="Finished" />
+        <Kpi label="Attended" value={attended.length} sub={`${list.filter((s) => s.attendance === "absent").length} missed`} tone="green" />
+        <Kpi label="To rate" value={toRate} sub={toRate ? "Waiting for your rating" : "All rated"} tone={toRate ? "amber" : "green"} />
+        <Kpi label="Your average" value={avg} sub={`${ratings.length} rated`} />
+      </div>
+
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4 w-fit" role="tablist" aria-label="History">
+        <button type="button" role="tab" aria-selected={tab === "sessions"} onClick={() => setTab("sessions")} className={`rp-seg ${tab === "sessions" ? "active" : ""}`}>Sessions</button>
+        <button type="button" role="tab" aria-selected={tab === "ratings"} onClick={() => setTab("ratings")} className={`rp-seg ${tab === "ratings" ? "active" : ""}`}>My ratings ({ratings.length})</button>
+      </div>
+
+      {tab === "ratings" ? (
+        myRatings.length
+          ? <div className="space-y-3">{myRatings.map((r) => <RatingCard key={r.id} r={r} onEdit={() => setRating({ id: r.sessionId, topic: r.sessionName })} />)}</div>
+          : <EmptyCard title="No ratings yet" text="Rate a finished session from the Sessions tab — your ratings and comments show up here." />
+      ) : loading ? <div className="skel h-64"></div> : list.length ? (
+        <section className="rp-card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="rp-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style={{ minWidth: 200 }}>Session</th>
+                  <th className="hidden xl:table-cell">Teacher</th>
+                  <th>Attendance</th>
+                  <th>Materials</th>
+                  <th style={{ minWidth: 170 }}>Your rating</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((s) => {
+                  const r = ratingFor(s.id);
+                  return (
+                    <tr key={s.id}>
+                      <td className="whitespace-nowrap"><p className="font-semibold text-slate-900">{fmtDay(s.iso)}</p><p className="text-xs text-slate-400">{fmtTime(s.start)}</p></td>
+                      <td>
+                        <button className="text-left" onClick={() => navigate(`/user/session/${s.id}`)}>
+                          <p className="font-semibold text-slate-900 hover:text-one">{s.topic}</p>
+                          <p className="text-xs text-slate-500"><TypeDot type={s.type} />{s.type}{s.course ? ` · ${s.course}` : ""}</p>
+                        </button>
+                      </td>
+                      <td className="whitespace-nowrap hidden xl:table-cell"><div className="flex items-center gap-2"><TeacherAvatar name={s.teacher} /><span className="text-sm text-slate-700">{s.teacher}</span></div></td>
+                      <td><Attendance s={s} /></td>
+                      <td><button className="pl-btn" onClick={() => navigate(`/user/session/${s.id}`)}><Icon name="pdf" size={14} /><span className="hidden sm:inline"> Materials</span></button></td>
+                      <td>
+                        {r ? (
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <StarRow value={toStars(r)} />
+                              <span className="text-xs font-bold text-slate-500">{toStars(r).toFixed(1)}</span>
+                              <button className="text-xs font-semibold text-slate-400 hover:text-one" onClick={() => setRating(s)}>Edit</button>
+                            </div>
+                            {r.generalComment && <p className="text-xs text-slate-500 mt-1 max-w-xs truncate">“{r.generalComment}”</p>}
+                          </div>
+                        ) : canRate(s)
+                          ? <button className="pl-btn primary" onClick={() => setRating(s)}>★<span className="hidden sm:inline"> Rate session</span></button>
+                          : <span className="text-xs text-slate-400">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <EmptyCard title="No finished sessions yet" text="Sessions you attend show up here, with their materials and your rating." />
+      )}
+
+      {rating && (
+        <SessionRatingModal
+          sessionId={rating.id}
+          sessionName={rating.topic}
+          onClose={() => setRating(null)}
+          onRatingSuccess={() => { setRating(null); reloadRatings(); showToast("Thanks — your rating was sent"); }}
+        />
+      )}
+    </Page>
+  );
+}

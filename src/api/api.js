@@ -1,7 +1,10 @@
 import axios from "axios";
 import { getToken } from "../utils/auth";
+// Backend URL: set VITE_API_URL in .env.development / .env.production
+export const API_URL = import.meta.env.VITE_API_URL || "https://bcknd.mathshouse.net";
+
 const api = axios.create({
-  baseURL: "https://bcknd.mathshouse.net", 
+  baseURL: API_URL,
 });
 
 api.interceptors.request.use((config) => {

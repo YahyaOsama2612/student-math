@@ -143,7 +143,7 @@ const Review = () => {
           attemptId: attemptId,
           questionIds: [questionId],
         },
-        "https://bcknd.mathshouse.net/api/user/diagnostic-exams/parallel/questions",
+        "/api/user/diagnostic-exams/parallel/questions",
       );
 
       setParallelData(resData?.data ?? null);
@@ -1250,7 +1250,7 @@ const ExamResultReview = ({ result, examId, recommendedLessonsToStudy = [] }) =>
           attemptId: attemptId,
           questionIds: [questionId],
         },
-        "https://bcknd.mathshouse.net/api/user/exams/parallel/questions",
+        "/api/user/exams/parallel/questions",
         "Parallel question requested successfully",
       );
 

@@ -1,59 +1,38 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FileText, Award, Activity } from "lucide-react";
 
+// Report switcher (design: Subjects | EXAM | Diagnose → .rp-seg).
 export const REPORT_TABS = [
-  {
-    id: "quizzes",
-    label: "Quiz Reports",
-    path: "/user/reports/quizzes",
-    icon: FileText,
-  },
-  {
-    id: "exams",
-    label: "Exam Reports",
-    path: "/user/reports/exams",
-    icon: Award,
-  },
-  {
-    id: "diagnostic",
-    label: "Diagnostic Exam",
-    path: "/user/reports/diagnostic-exam",
-    icon: Activity,
-  },
+  { id: "quizzes", label: "Subjects", path: "/user/reports/quizzes" },
+  { id: "exams", label: "EXAM", path: "/user/reports/exams" },
+  { id: "diagnostic", label: "Diagnose", path: "/user/reports/diagnostic-exam" },
 ];
+
+/** Which report a pathname shows: /user/reports and /user/reports/quizzes → quizzes. */
+export const reportTabFor = (pathname = "") =>
+  REPORT_TABS.find((t) => pathname.startsWith(t.path))?.id || "quizzes";
 
 export const ReportsTabsHeader = ({ activeTab }) => {
   const navigate = useNavigate();
   const location = useLocation();
-
-  // If activeTab is not explicitly passed, determine from pathname
-  const currentTab =
-    activeTab ||
-    REPORT_TABS.find((t) => location.pathname.startsWith(t.path))?.id ||
-    (location.pathname === "/user/reports" ? "quizzes" : "quizzes");
+  const currentTab = activeTab || reportTabFor(location.pathname);
 
   return (
-    <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200">
-      {REPORT_TABS.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = currentTab === tab.id;
-        return (
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1" role="tablist" aria-label="Reports">
+        {REPORT_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => navigate(tab.path)}
-            className={`flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm font-bold transition-all border-b-2 -mb-[2px] ${
-              isActive
-                ? "border-[#7d0a0a] text-[#7d0a0a]"
-                : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-            }`}
+            role="tab"
+            aria-selected={currentTab === tab.id}
+            onClick={() => currentTab !== tab.id && navigate(tab.path)}
+            className={`rp-seg ${currentTab === tab.id ? "active" : ""}`}
           >
-            <Icon size={16} />
-            <span>{tab.label}</span>
+            {tab.label}
           </button>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 };

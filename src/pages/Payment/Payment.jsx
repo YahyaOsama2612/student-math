@@ -1,92 +1,75 @@
-import React, { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
-import Loader from "@/components/Loading";
-import Errorpage from "@/components/Errorpage";
-import ReusableTableSearch from "@/components/ReusableTableSearch";
 import { toast } from "react-hot-toast";
-import {
-  Layers,
-  ChevronRight,
-  BookOpen,
-  ArrowLeft,
-  ShoppingCart,
-  CheckCircle2,
-  X,
-  Plus,
-  Check,
-  ShoppingBag,
-  CreditCard,
-  Eye,
-  Zap,
-  Calendar,
-  Wallet,
-  AlertCircle,
-  ExternalLink,
-  XCircle,
-  History,
-  TicketPercent,
-  Loader2,
-  Lock,
-  Unlock,
-} from "lucide-react";
+import Icon from "@/components/portal/Icon";
+import { Modal, Page, PageHead } from "@/components/portal/ui";
+import { CourseCatalog, ErrorCard, PayMethods, PromoBox, ReceiptUpload, SkelGrid, money } from "./storeParts";
+
+/* Store (MathPortal design): Courses catalog with plan picker + cart → /user/enrollment,
+   packages (live sessions / exams / questions) bought in a checkout dialog, and order history. */
+
+const STORE_TABS = [
+  ["courses", "Explore Courses", "book", "Full courses with a time plan"],
+  ["packages", "Buy Packages", "store", "Live sessions, exams & questions"],
+  ["history", "History", "history", "Your orders and their status"],
+];
+/** packages.type → design kind */
+const PACK_KIND = {
+  live: { kind: "sessions", label: "Live sessions", unit: "sessions", one: "session" },
+  exam: { kind: "exams", label: "Exams", unit: "exams", one: "exam" },
+  question: { kind: "questions", label: "Questions", unit: "questions", one: "question" },
+};
+const packKind = (t) => PACK_KIND[t] || { kind: "sessions", label: "Package", unit: "items", one: "item" };
+const fmtDate = (v) => {
+  const d = new Date(v);
+  return v && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "N/A";
+};
+const statusPill = (status) =>
+  status === "completed" ? <span className="pill bg-green-100 text-green-700">PAID</span>
+    : status === "rejected" ? <span className="pill bg-red-100 text-red-600">REJECTED</span>
+      : <span className="pill bg-amber-100 text-amber-700">AWAITING APPROVAL</span>;
 
 const Payment = () => {
   const navigate = useNavigate();
   const [activeMainTab, setActiveMainTab] = useState("courses"); // courses | packages | history
   const [historySubTab, setHistorySubTab] = useState("pending-courses"); // pending-courses | completed-courses | rejected-courses | packages-history
 
-  // --- 1. الـ States الخاصة بـ الكورسات والباقات ---
-  const [isBuyMode, setIsBuyMode] = useState(false);
+  // --- Courses selection (cart) + package checkout ---
   const [selectedCourses, setSelectedCourses] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [receiptImg, setReceiptImg] = useState("");
+  const [receiptName, setReceiptName] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [checkoutMode, setCheckoutMode] = useState("buy"); // buy | upgrade
   const [upgradeSourceId, setUpgradeSourceId] = useState(null); // id of the package-buy history row being upgraded
-  const [includeAnswersAddon, setIncludeAnswersAddon] = useState(false); // true when buying a package together with the answers add-on
-  // --- الـ States الخاصة بكود الخصم في مودال شراء الباقة ---
+  const [includeAnswersAddon, setIncludeAnswersAddon] = useState(false); // buying a package together with the answers add-on
+  // promo code inside the package checkout
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState(null);
   const [appliedPromo, setAppliedPromo] = useState(null); // { code, discountAmount }
-  // --- الـ States الخاصة بجدول تاريخ الباقات ---
+  // packages history table
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
+  // packages filters
+  const [packFilter, setPackFilter] = useState("all");
+  const [packCourse, setPackCourse] = useState("all");
 
-  // --- 2. جلب كافة البيانات من الـ APIs ---
-  const {
-    data: coursesData,
-    loading: coursesLoading,
-    error: coursesError,
-  } = useGet("/api/user/courses");
-  const { data: packagesData, loading: packLoading } =
-    useGet("/api/user/packages");
-  const { data: methodsData, loading: methodsLoading } = useGet(
-    "/api/user/payment/payment-methods",
-  );
-  const {
-    data: purchasesData,
-    loading: purchasesLoading,
-    error: purchasesError,
-    refetch: refetchPurchases,
-  } = useGet("/api/user/enrollment/my-purchases");
-  const {
-    data: historyData,
-    loading: historyLoading,
-    refetch: refetchPackHistory,
-  } = useGet(
+  // --- APIs ---
+  const { data: coursesData, loading: coursesLoading, error: coursesError } = useGet("/api/user/courses");
+  const { data: packagesData, loading: packLoading, error: packError } = useGet("/api/user/packages");
+  const { data: methodsData, loading: methodsLoading, error: methodsError } = useGet("/api/user/payment/payment-methods");
+  const { data: purchasesData, loading: purchasesLoading, error: purchasesError } = useGet("/api/user/enrollment/my-purchases");
+  const { data: historyData, loading: historyLoading, refetch: refetchPackHistory } = useGet(
     `/api/user/payment/package-buy/history?page=${currentPage}&limit=${rowsPerPage}`,
   );
 
   const { postData, loading: posting } = usePost();
-  const { postData: validatePromo, loading: validatingPromo } = usePost(
-    "/api/user/promo-codes/validate",
-  );
+  const { postData: validatePromo, loading: validatingPromo } = usePost("/api/user/promo-codes/validate");
 
-  // مخرجات الـ APIs
   const courses = coursesData?.data?.courses || [];
   const packages = packagesData?.data?.data || [];
   const paymentMethods = methodsData?.data?.paymentMethods || [];
@@ -94,96 +77,58 @@ const Payment = () => {
   const purchaseHistory = historyData?.data?.history || [];
   const paginationInfo = historyData?.data?.pagination || {};
 
-  // --- 3. منطق الكورسات المساعد ---
-  const getDefaultPlan = (plans) => {
-    if (!plans || plans.length === 0) return null;
-    return plans.find((plan) => plan.isDefault) || plans[0];
-  };
-
-  const toggleCourseSelection = (course) => {
-    if (!isBuyMode || course.isPurchased) return;
-    setSelectedCourses((prev) => {
-      const isExist = prev.find((item) => item.courseId === course.id);
-      if (isExist) return prev.filter((item) => item.courseId !== course.id);
-
-      const defaultPlan = getDefaultPlan(course.pricePlans);
-      return [
-        ...prev,
-        {
-          courseId: course.id,
-          courseName: course.name,
-          planId: defaultPlan?.id || null,
-          planLabel: defaultPlan?.durationLabel || "",
-          price: defaultPlan ? parseFloat(defaultPlan.totalPriceEgp) : 0,
-        },
-      ];
-    });
-  };
-
-  const handlePlanChange = (course, planId) => {
-    const selectedPlan = course.pricePlans.find((p) => p.id === planId);
-    if (!selectedPlan) return;
-    setSelectedCourses((prev) =>
-      prev.map((item) =>
-        item.courseId === course.id
-          ? {
-              ...item,
-              planId: selectedPlan.id,
-              planLabel: selectedPlan.durationLabel,
-              price: parseFloat(selectedPlan.totalPriceEgp),
-            }
-          : item,
-      ),
-    );
-  };
-
-  const totalPrice = selectedCourses.reduce((sum, item) => sum + item.price, 0);
-
-  const handleProceedToBuy = () => {
-    if (selectedCourses.length === 0) return;
-    navigate("/user/enrollment", {
-      state: {
-        type: "courseId",
-        selectedItems: selectedCourses,
-        ids: selectedCourses.map((c) => c.courseId),
-        price: totalPrice,
-        name:
-          selectedCourses.length === 1
-            ? selectedCourses[0].courseName
-            : `${selectedCourses.length} Courses`,
-      },
-    });
-  };
-
-  // --- 4. منطق شراء الباقات والملفات ---
+  // --- Package purchase ---
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-
     if (file) {
       const reader = new FileReader();
-
       reader.onloadend = () => {
-        const base64String = reader.result;
-        setReceiptImg(base64String);
+        setReceiptImg(reader.result);
+        setReceiptName(file.name);
         toast.success("Receipt attached successfully!");
       };
-
-      reader.onerror = () => {
-        toast.error("Failed to convert file to Base64");
-      };
-
+      reader.onerror = () => toast.error("Failed to convert file to Base64");
       reader.readAsDataURL(file);
     }
   };
 
+  const resetPromoState = () => {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError(null);
+  };
+
+  const openCheckout = (pkg, { mode = "buy", sourceId = null, addon = false } = {}) => {
+    setCheckoutMode(mode);
+    setSelectedPackage(pkg);
+    setUpgradeSourceId(sourceId);
+    setIncludeAnswersAddon(addon);
+    resetPromoState();
+    setIsModalOpen(true);
+  };
+
+  const closeCheckout = () => {
+    setIsModalOpen(false);
+    setCheckoutMode("buy");
+    setUpgradeSourceId(null);
+    setIncludeAnswersAddon(false);
+    resetPromoState();
+  };
+
+  const basePackagePrice =
+    (checkoutMode === "upgrade"
+      ? Number(selectedPackage?.answersPrice)
+      : Number(selectedPackage?.price) + (includeAnswersAddon ? Number(selectedPackage?.answersPrice) || 0 : 0)) || 0;
+  const discountedPackagePrice = appliedPromo
+    ? basePackagePrice - (basePackagePrice * appliedPromo.discountAmount) / 100
+    : basePackagePrice;
+
   const handlePurchasePackage = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     if (!selectedMethod) return toast.error("Please select a payment method");
 
     const isAutomatic = selectedMethod.type === "Automatic";
-    const endpoint = isAutomatic
-      ? "/api/user/payment/package-buy/automatic"
-      : "/api/user/payment/package-buy";
+    const endpoint = isAutomatic ? "/api/user/payment/package-buy/automatic" : "/api/user/payment/package-buy";
 
     const isUpgrade = checkoutMode === "upgrade";
     const upgradeAmount = Number(selectedPackage?.answersPrice) || 0;
@@ -192,7 +137,6 @@ const Payment = () => {
       return toast.error("This package has no answers plan price set.");
     }
 
-    // للترقية: احسب السعر مع الخصم إن وجد
     const upgradeAmountWithDiscount = appliedPromo
       ? upgradeAmount - (upgradeAmount * appliedPromo.discountAmount) / 100
       : upgradeAmount;
@@ -211,31 +155,22 @@ const Payment = () => {
       }),
       ...(!isUpgrade && {
         amount: discountedPackagePrice,
-        ...(includeAnswersAddon && {
-          includedAnswers: true,
-        }),
+        ...(includeAnswersAddon && { includedAnswers: true }),
       }),
     };
 
     try {
       const res = await postData(body, endpoint);
-      const redirectUrl =
-        res?.checkoutUrl ||
-        res?.paymentUrl ||
-        res?.data?.checkoutUrl ||
-        res?.data?.paymentUrl;
+      const redirectUrl = res?.checkoutUrl || res?.paymentUrl || res?.data?.checkoutUrl || res?.data?.paymentUrl;
 
       if (redirectUrl) {
         window.location.href = redirectUrl;
       } else {
-        toast.success(
-          isUpgrade
-            ? "Upgrade request submitted successfully!"
-            : "Purchase request submitted successfully!",
-        );
+        toast.success(isUpgrade ? "Upgrade request submitted successfully!" : "Purchase request submitted successfully!");
         setIsModalOpen(false);
         setSelectedPackage(null);
         setReceiptImg("");
+        setReceiptName("");
         setCheckoutMode("buy");
         setUpgradeSourceId(null);
         setIncludeAnswersAddon(false);
@@ -247,19 +182,13 @@ const Payment = () => {
     }
   };
 
-  // --- كود الخصم لمودال شراء الباقة ---
   const handleApplyPromo = async () => {
     if (!promoCode.trim() || !selectedPackage) return;
     setPromoError(null);
     try {
       const json = await validatePromo({
         code: promoCode.trim().toUpperCase(),
-        items: {
-          packageIds: [selectedPackage.id],
-          courseIds: [],
-          chapterIds: [],
-          lessonIds: [],
-        },
+        items: { packageIds: [selectedPackage.id], courseIds: [], chapterIds: [], lessonIds: [] },
       });
       if (json?.success) {
         setAppliedPromo({
@@ -268,101 +197,19 @@ const Payment = () => {
         });
         toast.success("Promo code applied!");
       } else {
-        setPromoError(
-          json?.error?.message || json?.message || "Invalid promo code",
-        );
+        setPromoError(json?.error?.message || json?.message || "Invalid promo code");
       }
     } catch (err) {
       setPromoError(err.message || "This code couldn't be validated");
     }
   };
 
-  const handleRemovePromo = () => {
-    setAppliedPromo(null);
-    setPromoCode("");
-    setPromoError(null);
-  };
-
-  const resetPromoState = () => {
-    setAppliedPromo(null);
-    setPromoCode("");
-    setPromoError(null);
-  };
-
-  const basePackagePrice =
-    (checkoutMode === "upgrade"
-      ? Number(selectedPackage?.answersPrice)
-      : Number(selectedPackage?.price) +
-        (includeAnswersAddon
-          ? Number(selectedPackage?.answersPrice) || 0
-          : 0)) || 0;
-  const discountedPackagePrice = appliedPromo
-    ? basePackagePrice - (basePackagePrice * appliedPromo.discountAmount) / 100
-    : basePackagePrice;
-
-  // --- 5. تصنيف طلبات الكورسات (Pending Purchases) ---
+  // --- Course orders by status ---
   const categorizedPurchases = {
-    pending: allPurchases.filter(
-      (p) => p.paymentStatus !== "completed" && p.paymentStatus !== "rejected",
-    ),
+    pending: allPurchases.filter((p) => p.paymentStatus !== "completed" && p.paymentStatus !== "rejected"),
     completed: allPurchases.filter((p) => p.paymentStatus === "completed"),
     rejected: allPurchases.filter((p) => p.paymentStatus === "rejected"),
   };
-
-  // --- 6. أعمدة جدول الباقات ---
-  const packageColumns = [
-    {
-      header: "Package",
-      key: "package",
-      render: (val) => <span className="font-bold text-one">{val?.name}</span>,
-    },
-    {
-      header: "Amount",
-      key: "amount",
-      render: (val) => (
-        <span className="font-bold text-green-600">{val} EGP</span>
-      ),
-    },
-    {
-      header: "Status",
-      key: "status",
-      render: (val) => (
-        <span
-          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-            val === "completed"
-              ? "bg-green-100 text-green-700"
-              : val === "rejected"
-                ? "bg-red-100 text-red-700"
-                : "bg-amber-100 text-amber-700"
-          }`}
-        >
-          {val}
-        </span>
-      ),
-    },
-    {
-      header: "Answers",
-      key: "includedAnswers",
-      render: (val) => (
-        <span
-          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-            val ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
-          }`}
-        >
-          {val ? "Included" : "None"}
-        </span>
-      ),
-    },
-    {
-      header: "Date",
-      key: "createdAt",
-      render: (val) => (
-        <span className="text-gray-400 text-xs">
-          {new Date(val).toLocaleDateString()}
-        </span>
-      ),
-    },
-  ];
 
   const upgradeEligibleRowIds = useMemo(() => {
     const rowsByPackage = new Map();
@@ -371,26 +218,16 @@ const Payment = () => {
       list.push(row);
       rowsByPackage.set(row.package.id, list);
     });
-
     const eligible = new Set();
     rowsByPackage.forEach((rows) => {
-      const upgradeAlreadyRequested = rows.some(
-        (r) => r.reason === "answers_upgrade",
-      );
-      if (upgradeAlreadyRequested) return;
-
-      const candidate = rows.find(
-        (r) =>
-          r.status === "completed" &&
-          r.includedAnswers === true &&
-          r.package?.hasAnswers,
-      );
+      if (rows.some((r) => r.reason === "answers_upgrade")) return;
+      const candidate = rows.find((r) => r.status === "completed" && r.includedAnswers === true && r.package?.hasAnswers);
       if (candidate) eligible.add(candidate.id);
     });
     return eligible;
   }, [purchaseHistory]);
 
-  // خريطة تربط كل باقة بحالتها: هل الطالب امتلكها بالفعل، وهل هو مؤهل لترقيتها بإضافة الإجابات
+  // per package: already owned? can it be upgraded with the answers add-on?
   const packageStatusById = useMemo(() => {
     const rowsByPackage = new Map();
     purchaseHistory.forEach((row) => {
@@ -398,908 +235,358 @@ const Payment = () => {
       list.push(row);
       rowsByPackage.set(row.package.id, list);
     });
-
     const statusMap = new Map();
     rowsByPackage.forEach((rows, packageId) => {
       const owned = rows.some((r) => r.status === "completed");
-      const upgradeAlreadyRequested = rows.some(
-        (r) => r.reason === "answers_upgrade",
-      );
-      const candidate = rows.find(
-        (r) =>
-          r.status === "completed" &&
-          r.includedAnswers === true &&
-          r.package?.hasAnswers,
-      );
-      const canUpgrade = !upgradeAlreadyRequested && !!candidate;
-
-      statusMap.set(packageId, {
-        owned,
-        canUpgrade,
-        upgradeSourceId: candidate?.id || null,
-      });
+      const upgradeAlreadyRequested = rows.some((r) => r.reason === "answers_upgrade");
+      const candidate = rows.find((r) => r.status === "completed" && r.includedAnswers === true && r.package?.hasAnswers);
+      statusMap.set(packageId, { owned, canUpgrade: !upgradeAlreadyRequested && !!candidate, upgradeSourceId: candidate?.id || null });
     });
     return statusMap;
   }, [purchaseHistory]);
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "completed":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-200 uppercase">
-            <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> Success
-          </span>
-        );
-      case "rejected":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 border border-red-200 uppercase">
-            <XCircle className="w-3.5 h-3.5 text-red-500" /> Rejected
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />{" "}
-            Pending
-          </span>
-        );
-    }
+  // --- Packages filters ---
+  const packTypes = [...new Set(packages.map((p) => p.type))];
+  const packCourses = [...new Map(packages.filter((p) => p.course?.id).map((p) => [p.course.id, p.course.name])).entries()];
+  const shownPackages = packages.filter((p) => (packFilter === "all" || p.type === packFilter) && (packCourse === "all" || p.course?.id === packCourse));
+
+  const loadingCourses = coursesLoading || (!coursesData && !coursesError);
+  const loadingPurchases = purchasesLoading || (!purchasesData && !purchasesError);
+  const filteredHistory = searchTerm.trim()
+    ? purchaseHistory.filter((r) => (r.package?.name || "").toLowerCase().includes(searchTerm.trim().toLowerCase()))
+    : purchaseHistory;
+  const totalPages = paginationInfo.totalPages || 1;
+
+  /* ---------------- render pieces ---------------- */
+
+  const packageCard = (pkg) => {
+    const k = packKind(pkg.type);
+    const st = packageStatusById.get(pkg.id);
+    const isOwned = st?.owned;
+    const canUpgrade = st?.canUpgrade;
+    const price = Number(pkg.price) || 0;
+    const addon = pkg.hasAnswers && Number(pkg.answersPrice) > 0;
+    const n = Number(pkg.number) || 0;
+    return (
+      <section key={pkg.id} className="card p-6 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`kind-pill kind-${k.kind}`}>{k.label}</span>
+          {isOwned && <span className="pill bg-green-100 text-green-700">OWNED</span>}
+        </div>
+        <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+          {[pkg.course?.name, n ? `${n} ${k.unit}` : ""].filter(Boolean).join(" · ")}
+        </p>
+        <h4 className="text-xl font-extrabold text-gray-900 -mt-1">{pkg.name}</h4>
+        <div>
+          <p className="text-3xl font-extrabold text-gray-900">{money(price)}</p>
+          {n > 0 && <p className="text-xs text-slate-400">{money(price / n)} / {k.one}</p>}
+        </div>
+        <ul className="text-sm text-slate-600 space-y-1.5 flex-1">
+          {n > 0 && <li className="flex gap-2"><span className="text-green-600 mt-0.5"><Icon name="check" size={14} /></span>{n} {k.unit}{pkg.course?.name ? ` for ${pkg.course.name}` : ""}</li>}
+          {Number(pkg.duration) > 0 && <li className="flex gap-2"><span className="text-green-600 mt-0.5"><Icon name="check" size={14} /></span>Valid for {pkg.duration} days</li>}
+          {pkg.category?.name && <li className="flex gap-2"><span className="text-green-600 mt-0.5"><Icon name="check" size={14} /></span>{pkg.category.name}</li>}
+        </ul>
+        {addon && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+            <p className="text-xs font-extrabold text-blue-700">Answers review add-on · +{money(pkg.answersPrice)}</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Purchase this add-on first, then you can upgrade your package with answers anytime.</p>
+          </div>
+        )}
+        {isOwned && canUpgrade ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-mini ok" disabled>Owned ✓</button>
+            <button className="btn-mini primary" onClick={() => openCheckout(pkg, { mode: "upgrade", sourceId: st.upgradeSourceId })}>Upgrade</button>
+          </div>
+        ) : isOwned ? (
+          <button className="btn-primary" disabled style={{ opacity: 0.55 }}>Owned ✓</button>
+        ) : addon ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-mini primary" onClick={() => openCheckout(pkg)}>Buy · {money(price)}</button>
+            <button className="btn-mini" onClick={() => openCheckout(pkg, { addon: true })}>With answers · {money(price + Number(pkg.answersPrice))}</button>
+          </div>
+        ) : (
+          <button className="btn-primary" onClick={() => openCheckout(pkg)}><Icon name="store" size={16} /> Buy package · {money(price)}</button>
+        )}
+      </section>
+    );
   };
 
-  // Loading Screen
-  if (coursesLoading || packLoading || methodsLoading || purchasesLoading)
-    return <Loader />;
-  if (coursesError || purchasesError) return <Errorpage />;
+  const filterBtn = (active, label, onClick, key) => (
+    <button key={key} className={`tab-btn ${active ? "active" : ""}`} style={{ border: "1px solid #e2e8f0" }} onClick={onClick}>{label}</button>
+  );
 
-  return (
-    <div className="bg-[#fcfcfd] min-h-screen p-4 md:p-6 lg:p-8 relative pb-24">
-      {/* ─── TOP HEADER & MAIN NAVIGATION ─── */}
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-        <div>
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-gray-400 hover:text-gray-900 mb-2 transition-colors font-medium text-sm"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back
-          </button>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-            Billing & Courses
-          </h1>
+  const purchaseCard = (purchase) => (
+    <section key={purchase.id} className="rp-card flex flex-col gap-3">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-xl bg-[#FDECEC] text-one flex items-center justify-center shrink-0"><Icon name="book" size={18} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="font-extrabold text-gray-900 truncate">{purchase.details?.name || `Purchase ID: #${String(purchase.id).slice(0, 8)}`}</p>
+          <p className="text-xs text-slate-500">
+            <span className="capitalize">{purchase.type || "N/A"}</span>
+            {purchase.pricePlan?.label && ` · ${purchase.pricePlan.label}`}
+          </p>
         </div>
-
-        {/* التابات الرئيسية الاحترافية */}
-        <div className="flex bg-gray-100 p-1.5 rounded-2xl border border-gray-200 shadow-sm w-full md:w-auto">
-          <button
-            onClick={() => {
-              setActiveMainTab("courses");
-              setIsBuyMode(false);
-            }}
-            className={`flex-1 md:flex-initial px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-              activeMainTab === "courses"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-900"
-            }`}
-          >
-            <BookOpen className="w-4 h-4" /> Explore Courses
-          </button>
-          <button
-            onClick={() => setActiveMainTab("packages")}
-            className={`flex-1 md:flex-initial px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-              activeMainTab === "packages"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-900"
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" /> Buy Packages
-          </button>
-          <button
-            onClick={() => setActiveMainTab("history")}
-            className={`flex-1 md:flex-initial px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-              activeMainTab === "history"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-900"
-            }`}
-          >
-            <History className="w-4 h-4" /> History & Tracking
-          </button>
+        {statusPill(purchase.paymentStatus)}
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm border-t border-slate-100 pt-3">
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 uppercase">Paid</p>
+          <p className="font-extrabold text-gray-900">{money(purchase.payment?.amount || 0)}</p>
+          <p className="text-xs text-slate-500">via {purchase.payment?.method || "Unknown"}</p>
+        </div>
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 uppercase">Requested</p>
+          <p className="font-bold text-gray-900">{fmtDate(purchase.date)}</p>
         </div>
       </div>
+      {purchase.payment?.reason && (
+        <p className="text-xs rounded-xl bg-red-50 text-red-700 border border-red-100 p-2.5"><b>Reason:</b> {purchase.payment.reason}</p>
+      )}
+      {purchase.payment?.receipt && (
+        <a href={purchase.payment.receipt} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-one hover:underline self-start">View payment receipt →</a>
+      )}
+    </section>
+  );
 
-      <div className="max-w-7xl mx-auto">
-        {/* ─── TAB 1: EXPLORE & BUY COURSES ─── */}
+  const historyTabs = [
+    { id: "pending-courses", label: "Pending", count: categorizedPurchases.pending.length },
+    { id: "completed-courses", label: "Completed", count: categorizedPurchases.completed.length },
+    { id: "rejected-courses", label: "Rejected", count: categorizedPurchases.rejected.length },
+    { id: "packages-history", label: "Packages", count: paginationInfo.total || 0 },
+  ];
+
+  return (
+    <Page wide>
+      <div className={activeMainTab === "courses" && selectedCourses.length ? "pb-24" : ""}>
+        <PageHead title="Store" text="Courses, live sessions, exams and question packages. Prices are in EGP.">
+          <button className="btn-ghost" onClick={() => navigate("/user/mypurchases")}><Icon name="purchases" size={16} /> My purchases</button>
+        </PageHead>
+
+        {/* Store tabs */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          {STORE_TABS.map(([k, l, icon, sub]) => (
+            <button key={k} onClick={() => setActiveMainTab(k)} className={`store-tab ${activeMainTab === k ? "active" : ""}`} aria-pressed={activeMainTab === k}>
+              <span className="store-tab-icon"><Icon name={icon} size={20} /></span>
+              <span className="text-left min-w-0">
+                <span className="block font-extrabold text-sm">{l}</span>
+                <span className="block text-[11px] opacity-70 truncate">{sub}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* ─── Courses ─── */}
         {activeMainTab === "courses" && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
-              <p className="text-gray-500 font-medium text-sm pl-2">
-                Select courses and activate buying mode to checkout multiple
-                plans.
-              </p>
-              {!isBuyMode ? (
-                <button
-                  onClick={() => setIsBuyMode(true)}
-                  className="flex items-center gap-2 bg-one text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-one/20 hover:scale-105 active:scale-95 transition-all text-sm"
-                >
-                  <ShoppingCart className="w-4 h-4" /> Buy Courses
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setIsBuyMode(false);
-                    setSelectedCourses([]);
-                  }}
-                  className="flex items-center gap-2 bg-red-50 text-red-600 px-6 py-3 rounded-2xl font-bold border border-red-100 hover:bg-red-100 transition-all text-sm"
-                >
-                  <X className="w-4 h-4" /> Cancel Selection
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {courses.map((course) => {
-                const selectedItem = selectedCourses.find(
-                  (c) => c.courseId === course.id,
-                );
-                const isSelected = !!selectedItem;
-                const isPurchased = course.isPurchased;
-
-                const currentPlan = isSelected
-                  ? course.pricePlans.find((p) => p.id === selectedItem.planId)
-                  : getDefaultPlan(course.pricePlans);
-
-                return (
-                  <div
-                    key={course.id}
-                    onClick={() => toggleCourseSelection(course)}
-                    className={`group relative bg-white rounded-[2.5rem] p-5 flex flex-col h-full transition-all duration-300 border-2 ${
-                      isBuyMode && !isPurchased
-                        ? isSelected
-                          ? "border-one ring-4 ring-one/10 shadow-xl scale-[1.02]"
-                          : "border-gray-200 cursor-pointer hover:border-one/50"
-                        : isPurchased
-                          ? "border-gray-100 opacity-80"
-                          : "border-gray-50 shadow-sm"
-                    }`}
-                  >
-                    {isBuyMode && !isPurchased && (
-                      <div
-                        className={`absolute -top-2 -right-2 w-8 h-8 rounded-full border-4 border-white flex items-center justify-center shadow-lg transition-all z-10 ${
-                          isSelected
-                            ? "bg-one text-white scale-110"
-                            : "bg-gray-100 text-gray-400"
-                        }`}
-                      >
-                        {isSelected ? (
-                          <CheckCircle2 className="w-4 h-4" />
-                        ) : (
-                          <Plus className="w-4 h-4" />
-                        )}
-                      </div>
-                    )}
-
-                    {isPurchased && (
-                      <div className="absolute top-4 right-4 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 z-10">
-                        <Unlock className="w-3 h-3" /> Purchased
-                      </div>
-                    )}
-
-                    <div className="aspect-video bg-gray-50 rounded-[2rem] mb-4 overflow-hidden border border-gray-100 flex items-center justify-center group-hover:bg-gray-100 transition-colors">
-                      <Layers
-                        className={`w-10 h-10 ${isSelected ? "text-one" : "text-gray-200"}`}
-                      />
-                    </div>
-
-                    <div className="flex flex-col flex-grow">
-                      <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 px-1">
-                        {course.category}
-                      </span>
-                      <h3 className="text-lg font-bold text-gray-800 mb-2 px-1">
-                        {course.name}
-                      </h3>
-
-                      <div className="flex items-center gap-4 px-1 mb-4">
-                        <div className="flex items-center gap-1 text-xs text-gray-400 font-medium">
-                          <BookOpen className="w-3.5 h-3.5" />{" "}
-                          {course.numberOfChapters} Chapters
-                        </div>
-                      </div>
-
-                      {isBuyMode &&
-                        !isPurchased &&
-                        course.pricePlans?.length > 0 && (
-                          <div
-                            className="mb-4 px-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">
-                              Select Plan:
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                              {course.pricePlans.map((plan) => {
-                                const isPlanSelected =
-                                  selectedItem?.planId === plan.id ||
-                                  (!isSelected && plan.isDefault);
-                                return (
-                                  <button
-                                    key={plan.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (!isSelected)
-                                        toggleCourseSelection(course);
-                                      handlePlanChange(course, plan.id);
-                                    }}
-                                    className={`flex-1 min-w-[85px] text-center py-2 px-3 rounded-xl text-xs font-bold transition-all border duration-200 ${
-                                      isPlanSelected
-                                        ? "bg-one/10 border-one text-one shadow-sm shadow-one/5"
-                                        : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300"
-                                    }`}
-                                  >
-                                    <div className="block whitespace-nowrap">
-                                      {plan.durationLabel}
-                                    </div>
-                                    <div
-                                      className={`text-[10px] mt-0.5 font-medium ${isPlanSelected ? "text-one/80" : "text-gray-400"}`}
-                                    >
-                                      {parseFloat(plan.totalPriceEgp)} LE
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                    </div>
-
-                    <div className="flex items-center justify-between mt-auto bg-gray-50 p-3 rounded-2xl">
-                      <div className="flex flex-col">
-                        {isPurchased ? (
-                          <span className="font-black text-green-600">
-                            Owned
-                          </span>
-                        ) : currentPlan ? (
-                          <>
-                            <span className="font-black text-gray-900">
-                              {parseFloat(currentPlan.totalPriceEgp)} LE
-                            </span>
-                            {currentPlan.hasDiscount && (
-                              <span className="text-xs text-gray-400 line-through">
-                                {parseFloat(currentPlan.priceEgp)} LE
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="font-black text-gray-900">N/A</span>
-                        )}
-                      </div>
-
-                      {!isBuyMode && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/user/courses/${course.id}`);
-                          }}
-                          className="group flex items-center gap-2 px-4 py-2 bg-white rounded-2xl shadow-md hover:shadow-lg hover:bg-gray-50 active:scale-95 transition-all duration-200"
-                        >
-                          {isPurchased ? (
-                            <Unlock className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <Lock className="w-4 h-4 text-gray-400 group-hover:text-one transition-colors" />
-                          )}
-                          <span className="text-sm font-medium text-gray-700 group-hover:text-one transition-colors">
-                            {isPurchased ? "Open" : "See Chapters"}
-                          </span>
-                          <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-one transform group-hover:translate-x-1 transition-all duration-200" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          loadingCourses ? <SkelGrid /> : coursesError ? <ErrorCard text="Could not load the courses." /> : (
+            <>
+              <p className="text-sm text-slate-500 mb-4">Pick an access plan for each course you want — they collect in your cart, then check out once.</p>
+              <CourseCatalog courses={courses} selected={selectedCourses} setSelected={setSelectedCourses} />
+            </>
+          )
         )}
 
-        {/* ─── TAB 2: BUY PACKAGES ─── */}
+        {/* ─── Packages ─── */}
         {activeMainTab === "packages" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-            {packages.map((pkg) => {
-              const pkgStatus = packageStatusById.get(pkg.id);
-              const isOwned = pkgStatus?.owned;
-              const canUpgrade = pkgStatus?.canUpgrade;
-
-              return (
-                <div
-                  key={pkg.id}
-                  className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-8 hover:border-one transition-all duration-500 group relative shadow-sm"
-                >
-                  <h3 className="text-2xl font-black text-gray-800 mb-2">
-                    {pkg.name}
-                  </h3>
-                  <div className="flex items-baseline gap-1 mb-6">
-                    <span className="text-4xl font-black text-one">
-                      {pkg.price}
-                    </span>
-                    <span className="text-gray-400 font-bold text-sm uppercase">
-                      EGP
-                    </span>
-                  </div>
-                  {pkg.hasAnswers && Number(pkg.answersPrice) > 0 && (
-                    <div className="mb-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-sky-50 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-5 w-5 text-blue-600"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M9 12h6m-3-3v6m9-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                        </div>
-
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-blue-700">
-                            Answers Review Add-on
-                          </p>
-
-                          <p className="mt-1 text-xs text-gray-600 leading-5">
-                            Unlock answer reviews for only{" "}
-                            <span className="font-bold text-blue-700">
-                              +{pkg.answersPrice} EGP
-                            </span>
-                            . Purchase this add-on first, then you can upgrade
-                            your package with answers anytime.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {isOwned && canUpgrade ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        disabled
-                        className="py-4 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 rounded-2xl font-black cursor-not-allowed flex items-center justify-center gap-1.5"
-                      >
-                        <Check size={16} strokeWidth={3} />
-                        OWNED
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCheckoutMode("upgrade");
-                          setSelectedPackage(pkg);
-                          setUpgradeSourceId(pkgStatus.upgradeSourceId);
-                          setIncludeAnswersAddon(false);
-                          resetPromoState();
-                          setIsModalOpen(true);
-                        }}
-                        className="py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
-                      >
-                        UPGRADE
-                      </button>
-                    </div>
-                  ) : isOwned ? (
-                    <button
-                      disabled
-                      className="w-full py-4 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 rounded-2xl font-black cursor-not-allowed flex items-center justify-center gap-1.5"
-                    >
-                      <Check size={16} strokeWidth={3} />
-                      OWNED
-                    </button>
-                  ) : pkg.hasAnswers && Number(pkg.answersPrice) > 0 ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => {
-                          setCheckoutMode("buy");
-                          setUpgradeSourceId(null);
-                          setIncludeAnswersAddon(false);
-                          setSelectedPackage(pkg);
-                          resetPromoState();
-                          setIsModalOpen(true);
-                        }}
-                        className="py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
-                      >
-                        BUY PACKAGE
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCheckoutMode("buy");
-                          setUpgradeSourceId(null);
-                          setIncludeAnswersAddon(true);
-                          setSelectedPackage(pkg);
-                          resetPromoState();
-                          setIsModalOpen(true);
-                        }}
-                        className="py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all"
-                      >
-                        BUY WITH ADDONS
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setCheckoutMode("buy");
-                        setUpgradeSourceId(null);
-                        setIncludeAnswersAddon(false);
-                        setSelectedPackage(pkg);
-                        resetPromoState();
-                        setIsModalOpen(true);
-                      }}
-                      className="w-full py-4 bg-black text-white rounded-2xl font-black group-hover:bg-one/80 transition-all"
-                    >
-                      BUY PACKAGE
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <>
+            <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-extrabold text-gray-900">Packages</h3>
+                <p className="text-sm text-slate-500">Live session, exam and question packages for your courses.</p>
+              </div>
+            </div>
+            {packTypes.length > 1 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {filterBtn(packFilter === "all", "All", () => setPackFilter("all"), "all")}
+                {packTypes.map((t) => filterBtn(packFilter === t, packKind(t).label, () => setPackFilter(t), t))}
+              </div>
+            )}
+            {packCourses.length > 1 && (
+              <div className="flex flex-wrap gap-2 mb-5">
+                {filterBtn(packCourse === "all", "All courses", () => setPackCourse("all"), "all-c")}
+                {packCourses.map(([id, name]) => filterBtn(packCourse === id, name, () => setPackCourse(id), id))}
+              </div>
+            )}
+            {packError && !packagesData ? <ErrorCard text="Could not load the packages." /> : packLoading || !packagesData ? <SkelGrid /> : shownPackages.length ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">{shownPackages.map(packageCard)}</div>
+            ) : (
+              <section className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+                <p className="text-lg font-extrabold text-gray-900 mb-1">No packages here</p>
+                <p className="text-sm text-slate-500">Packages for your courses show up here.</p>
+              </section>
+            )}
+          </>
         )}
 
-        {/* ─── TAB 3: INTEGRATED HISTORY & TRACKING ─── */}
+        {/* ─── History ─── */}
         {activeMainTab === "history" && (
-          <div className="space-y-8">
-            {/* التابات الفرعية لتصنيف الطلبات (الكورسات المعلقة / الباقات) */}
-            <div className="flex border-b border-gray-200 gap-2 overflow-x-auto pb-1">
-              {[
-                {
-                  id: "pending-courses",
-                  label: "Pending Courses",
-                  count: categorizedPurchases.pending.length,
-                  color: "bg-amber-100 text-amber-800",
-                },
-                {
-                  id: "completed-courses",
-                  label: "Completed Courses",
-                  count: categorizedPurchases.completed.length,
-                  color: "bg-green-100 text-green-800",
-                },
-                {
-                  id: "rejected-courses",
-                  label: "Rejected Courses",
-                  count: categorizedPurchases.rejected.length,
-                  color: "bg-red-100 text-red-800",
-                },
-                {
-                  id: "packages-history",
-                  label: "Packages Ledger",
-                  count: paginationInfo.total || 0,
-                  color: "bg-blue-100 text-blue-800",
-                },
-              ].map((subTab) => (
-                <button
-                  key={subTab.id}
-                  onClick={() => setHistorySubTab(subTab.id)}
-                  className={`pb-3 px-4 font-bold text-sm transition-all whitespace-nowrap relative flex items-center gap-2 ${
-                    historySubTab === subTab.id
-                      ? "text-one border-b-2 border-one"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {subTab.label}
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${subTab.color}`}
-                  >
-                    {subTab.count}
-                  </span>
+          <>
+            <div className="flex flex-wrap gap-1 bg-slate-100 rounded-xl p-1 mb-5 w-fit max-w-full">
+              {historyTabs.map((t) => (
+                <button key={t.id} onClick={() => setHistorySubTab(t.id)} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold ${historySubTab === t.id ? "bg-white text-one shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
+                  {t.label} <span className="text-slate-400">· {t.count}</span>
                 </button>
               ))}
             </div>
 
-            {/* عرض محتوى تابات الكورسات الثلاثة */}
-            {historySubTab.includes("courses") &&
-              (() => {
-                const currentStatusType = historySubTab.split("-")[0]; // pending | completed | rejected
-                const targetedPurchases =
-                  categorizedPurchases[currentStatusType] || [];
-
-                if (targetedPurchases.length === 0) {
-                  return (
-                    <div className="bg-white rounded-[2rem] border border-gray-100 p-12 text-center shadow-sm">
-                      <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                        No {currentStatusType} purchases found
-                      </h3>
-                      <p className="text-gray-500">
-                        You don't have any course orders in this category.
-                      </p>
-                    </div>
-                  );
-                }
-
+            {historySubTab.includes("courses") && (() => {
+              if (loadingPurchases) return <SkelGrid n={2} h="h-44" cols="md:grid-cols-2" />;
+              if (purchasesError) return <ErrorCard text="Could not load your orders." />;
+              const currentStatusType = historySubTab.split("-")[0]; // pending | completed | rejected
+              const targeted = categorizedPurchases[currentStatusType] || [];
+              if (!targeted.length) {
                 return (
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {targetedPurchases.map((purchase) => (
-                      <div
-                        key={purchase.id}
-                        className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col justify-between transition-all hover:shadow-md"
-                      >
-                        <div className="p-6">
-                          <div className="flex items-start justify-between gap-4 mb-4">
-                            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                              <BookOpen className="w-6 h-6" />
-                            </div>
-                            {getStatusBadge(purchase.paymentStatus)}
-                          </div>
-                          <h3 className="text-lg font-bold text-gray-900 mb-1 truncate">
-                            {purchase.details?.name ||
-                              `Purchase ID: #${purchase.id.slice(0, 8)}`}
-                          </h3>
-                          <p className="text-sm font-medium text-one mb-4">
-                            Type:{" "}
-                            <span className="capitalize">
-                              {purchase.type || "N/A"}
-                            </span>
-                            {purchase.pricePlan?.label &&
-                              ` (${purchase.pricePlan.label})`}
-                          </p>
-                          <hr className="border-gray-100 my-4" />
-                          <div className="space-y-3 text-sm text-gray-600">
-                            <div className="flex items-center gap-2">
-                              <Wallet className="w-4 h-4 text-gray-400" />
-                              <span>
-                                Paid{" "}
-                                <strong>
-                                  {purchase.payment?.amount || 0} EGP
-                                </strong>{" "}
-                                via {purchase.payment?.method || "Unknown"}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-gray-400" />
-                              <span>
-                                Requested:{" "}
-                                {purchase.date
-                                  ? new Date(purchase.date).toLocaleDateString()
-                                  : "N/A"}
-                              </span>
-                            </div>
-                            {purchase.payment?.reason && (
-                              <div className="mt-2 p-2 bg-red-50 text-red-700 rounded-lg text-xs border border-red-100">
-                                <strong>Reason:</strong>{" "}
-                                {purchase.payment.reason}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {purchase.payment?.receipt && (
-                          <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-                            <span className="text-xs font-medium text-gray-500">
-                              Payment Proof Attached
-                            </span>
-                            <a
-                              href={purchase.payment.receipt}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-one hover:underline"
-                            >
-                              View Receipt <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  <section className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+                    <p className="text-lg font-extrabold text-gray-900 mb-1">No {currentStatusType} purchases found</p>
+                    <p className="text-sm text-slate-500">You don't have any course orders in this category.</p>
+                  </section>
                 );
-              })()}
+              }
+              return <div className="grid gap-4 md:grid-cols-2">{targeted.map(purchaseCard)}</div>;
+            })()}
 
-            {/* عرض محتوى جدول باقات الدفع المحدث */}
             {historySubTab === "packages-history" && (
-              <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-                <ReusableTableSearch
-                  title="Packages Billing Ledger"
-                  columns={packageColumns}
-                  data={purchaseHistory}
-                  loading={historyLoading}
-                  currentPage={currentPage}
-                  totalPages={paginationInfo.totalPages || 1}
-                  totalResults={paginationInfo.total || 0}
-                  rowsPerPage={rowsPerPage}
-                  onPageChange={(page) => setCurrentPage(page)}
-                  onRowsPerPageChange={(size) => {
-                    setCurrentPage(size);
-                    setCurrentPage(1);
-                  }}
-                  searchTerm={searchTerm}
-                  onSearchChange={(val) => setSearchTerm(val)}
-                  extraActions={(row) => {
-                    const packageInfo = row.package;
-                    const canUpgrade = upgradeEligibleRowIds.has(row.id);
-
-                    return (
-                      <div className="flex items-center gap-2">
-                        {row.receiptImg && (
-                          <a
-                            href={row.receiptImg}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-2 text-one hover:bg-one/5 rounded-lg"
-                          >
-                            <Eye size={18} />
-                          </a>
-                        )}
-
-                        {canUpgrade && (
-                          <button
-                            onClick={() => {
-                              setCheckoutMode("upgrade");
-                              setSelectedPackage(packageInfo);
-                              setUpgradeSourceId(row.id);
-                              resetPromoState();
-                              setIsModalOpen(true);
-                            }}
-                            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
-                          >
-                            Upgrade
-                          </button>
-                        )}
-                      </div>
-                    );
-                  }}
-                />
-              </div>
+              <section className="rp-card !p-0 overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                  <h3 className="font-extrabold text-gray-900">Package orders</h3>
+                  <input className="input sm:!w-64" placeholder="Search packages…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Search packages" />
+                </div>
+                <div className={`overflow-x-auto ${historyLoading ? "opacity-60" : ""}`}>
+                  <table className="rp-table">
+                    <thead>
+                      <tr><th>Package</th><th>Amount</th><th>Status</th><th>Answers</th><th>Date</th><th className="text-right">Actions</th></tr>
+                    </thead>
+                    <tbody>
+                      {filteredHistory.length ? filteredHistory.map((row) => {
+                        const canUpgrade = upgradeEligibleRowIds.has(row.id);
+                        return (
+                          <tr key={row.id}>
+                            <td className="font-bold text-gray-900">{row.package?.name}</td>
+                            <td className="font-bold whitespace-nowrap">{money(row.amount)}</td>
+                            <td>{statusPill(row.status)}</td>
+                            <td>{row.includedAnswers ? <span className="pill bg-blue-100 text-blue-700">INCLUDED</span> : <span className="pill bg-slate-100 text-slate-500">NONE</span>}</td>
+                            <td className="text-slate-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                            <td>
+                              <div className="flex items-center justify-end gap-2">
+                                {row.receiptImg && <a href={row.receiptImg} target="_blank" rel="noreferrer" className="btn-mini">Receipt</a>}
+                                {canUpgrade && <button className="btn-mini primary" onClick={() => openCheckout(row.package, { mode: "upgrade", sourceId: row.id })}>Upgrade</button>}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }) : (
+                        <tr><td colSpan={6} className="text-center text-slate-400 py-10">{historyLoading ? "Loading…" : "No package orders found."}</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-slate-100 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-500">Total <b className="text-gray-900">{paginationInfo.total || 0}</b></span>
+                    <select
+                      value={rowsPerPage}
+                      onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                      className="input !w-auto !py-1.5 text-xs"
+                      aria-label="Rows per page"
+                    >
+                      {[10, 20, 50, 100].map((size) => <option key={size} value={size}>Show {size}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className="btn-mini" disabled={currentPage <= 1} style={currentPage <= 1 ? { opacity: 0.4 } : undefined} onClick={() => setCurrentPage(currentPage - 1)}>← Prev</button>
+                    <span className="text-xs font-bold text-slate-500">Page {currentPage} of {totalPages}</span>
+                    <button className="btn-mini" disabled={currentPage >= totalPages} style={currentPage >= totalPages ? { opacity: 0.4 } : undefined} onClick={() => setCurrentPage(currentPage + 1)}>Next →</button>
+                  </div>
+                </div>
+              </section>
             )}
-          </div>
+          </>
         )}
       </div>
 
-      {/* ─── FLOATING CHECKOUT BAR (FOR COURSES) ─── */}
-      {activeMainTab === "courses" &&
-        isBuyMode &&
-        selectedCourses.length > 0 && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-gray-900/95 backdrop-blur-md text-white p-5 rounded-[2.5rem] shadow-2xl z-50 flex items-center justify-between border border-white/10">
-            <div className="flex flex-col ml-2">
-              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                Total Price
-              </span>
-              <span className="text-2xl font-black text-one">
-                {totalPrice} <span className="text-xs">LE</span>
-              </span>
-            </div>
-            <button
-              onClick={handleProceedToBuy}
-              className="bg-one hover:bg-one/90 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-one/20"
-            >
-              Checkout ({selectedCourses.length})
+      {/* ─── Package checkout ─── */}
+      {isModalOpen && selectedPackage && (
+        <Modal
+          wide
+          title={checkoutMode === "upgrade" ? "Upgrade with answers" : "Checkout"}
+          onClose={closeCheckout}
+          actions={<>
+            <button className="pl-btn" onClick={closeCheckout}>Cancel</button>
+            <button className="pl-btn primary" onClick={handlePurchasePackage} disabled={posting || !selectedMethod}>
+              {posting
+                ? "Processing…"
+                : selectedMethod?.type === "Automatic"
+                  ? `Pay ${money(discountedPackagePrice)}`
+                  : checkoutMode === "upgrade"
+                    ? `Confirm upgrade · ${money(discountedPackagePrice)}`
+                    : `Place order · ${money(discountedPackagePrice)}`}
             </button>
-          </div>
-        )}
-
-      {/* ─── PACKAGE PURCHASE MODAL ─── */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30 shrink-0">
-              <div>
-                <h3 className="text-2xl font-black text-gray-800">
-                  {checkoutMode === "upgrade" ? "Upgrade" : "Checkout"}
-                </h3>
-                <p className="text-sm text-gray-400">
-                  {checkoutMode === "upgrade"
-                    ? "Adding answers to your purchase of "
-                    : "Completing purchase for "}
-                  <span className="text-one font-bold">
-                    {selectedPackage?.name}
-                  </span>
-                  {checkoutMode !== "upgrade" && includeAnswersAddon && (
-                    <span className="text-blue-600 font-bold">
-                      {" "}
-                      + Answers Add-on
-                    </span>
-                  )}
-                </p>
+          </>}
+        >
+          {/* Order line(s) */}
+          <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl px-3 mb-5">
+            <div className="flex items-start gap-3 py-3">
+              <span className={`kind-pill kind-${packKind(selectedPackage.type).kind}`}>{packKind(selectedPackage.type).label}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-900">{selectedPackage.name}</p>
+                <p className="text-xs text-slate-400">{checkoutMode === "upgrade" ? "Adding answers to your purchase" : "Package"}</p>
               </div>
-              <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setCheckoutMode("buy");
-                  setUpgradeSourceId(null);
-                  setIncludeAnswersAddon(false);
-                  resetPromoState();
-                }}
-                className="text-gray-400 hover:text-red-500 text-3xl font-light"
-              >
-                ×
-              </button>
+              <p className="text-sm font-extrabold text-gray-900 whitespace-nowrap">{money(checkoutMode === "upgrade" ? selectedPackage.answersPrice : selectedPackage.price)}</p>
             </div>
-
-            <form
-              onSubmit={handlePurchasePackage}
-              className="p-8 space-y-8 overflow-y-auto"
-            >
-              <div className="space-y-4">
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
-                  Choose Payment Method
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {paymentMethods.map((method) => (
-                    <div
-                      key={method.id}
-                      onClick={() => setSelectedMethod(method)}
-                      className={`relative cursor-pointer transition-all p-4 rounded-[2rem] border-2 flex flex-col items-center gap-3 ${
-                        selectedMethod?.id === method.id
-                          ? "border-one bg-one/5 ring-4 ring-one/5 shadow-inner"
-                          : "border-gray-100 hover:border-gray-200"
-                      }`}
-                    >
-                      <img
-                        src={method.logo}
-                        alt=""
-                        className="w-10 h-10 object-contain rounded-xl"
-                      />
-                      <span
-                        className={`text-[10px] font-black uppercase text-center leading-tight ${selectedMethod?.id === method.id ? "text-one" : "text-gray-400"}`}
-                      >
-                        {method.name}
-                      </span>
-                      {selectedMethod?.id === method.id && (
-                        <CheckCircle2
-                          size={16}
-                          className="absolute top-2 right-2 text-one"
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
+            {checkoutMode !== "upgrade" && includeAnswersAddon && (
+              <div className="flex items-start gap-3 py-3">
+                <span className="kind-pill kind-questions">Add-on</span>
+                <p className="flex-1 text-sm font-bold text-gray-900">Answers review add-on</p>
+                <p className="text-sm font-extrabold text-gray-900 whitespace-nowrap">+{money(selectedPackage.answersPrice)}</p>
               </div>
-
-              {checkoutMode === "buy" && (
-                <div className="space-y-3">
-                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Promo Code
-                  </label>
-                  {appliedPromo ? (
-                    <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
-                      <div className="flex items-center gap-2 text-emerald-800 text-sm font-bold">
-                        <CheckCircle2 className="w-4 h-4" />
-                        {appliedPromo.code} applied —{" "}
-                        {appliedPromo.discountAmount}% off
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleRemovePromo}
-                        className="text-emerald-700 hover:text-emerald-900"
-                        title="Remove promo code"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="flex gap-2">
-                        <input
-                          value={promoCode}
-                          onChange={(e) =>
-                            setPromoCode(e.target.value.toUpperCase())
-                          }
-                          placeholder="Enter promo code"
-                          className="flex-1 font-mono tracking-wide px-4 py-3 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-one/40 focus:border-one/40"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleApplyPromo}
-                          disabled={validatingPromo || !promoCode.trim()}
-                          className="flex items-center gap-1.5 bg-gray-900 text-white px-5 py-3 rounded-2xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          {validatingPromo && (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          )}
-                          Apply
-                        </button>
-                      </div>
-                      {promoError && (
-                        <p className="mt-2 text-xs text-red-600">
-                          {promoError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedMethod?.type === "Manual" && (
-                <div className="space-y-4">
-                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-start gap-3">
-                    <AlertCircle className="text-amber-500 mt-1" size={20} />
-                    <p className="text-xs text-amber-700 font-medium">
-                      Please transfer{" "}
-                      <span className="font-bold underline">
-                        {appliedPromo ? (
-                          <>
-                            <span className="line-through opacity-60 mr-1">
-                              {basePackagePrice}
-                            </span>
-                            {discountedPackagePrice.toFixed(2)}
-                          </>
-                        ) : (
-                          basePackagePrice
-                        )}{" "}
-                        EGP
-                      </span>{" "}
-                      to the wallet number, then upload the screenshot below.
-                      {checkoutMode !== "upgrade" && includeAnswersAddon && (
-                        <span className="block mt-1 text-[10px] font-bold text-blue-600 not-italic">
-                          Includes the Answers Review Add-on (+
-                          {selectedPackage?.answersPrice} EGP)
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="relative border-2 border-dashed border-gray-200 rounded-[2rem] p-8 text-center hover:bg-gray-50 transition-all cursor-pointer group">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="p-3 bg-gray-100 rounded-full group-hover:bg-one group-hover:text-white transition-colors">
-                        <Zap size={20} />
-                      </div>
-                      <p className="text-xs font-black text-gray-400">
-                        {receiptImg
-                          ? "✅ RECEIPT ATTACHED"
-                          : "UPLOAD SCREENSHOT"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {selectedMethod?.type === "Automatic" && (
-                <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100 flex items-center gap-4">
-                  <div className="p-3 bg-blue-500 rounded-full text-white shadow-lg shadow-blue-200">
-                    <Zap size={20} />
-                  </div>
-                  <p className="text-xs text-blue-700 font-bold leading-relaxed">
-                    INSTANT ACTIVATION —{" "}
-                    {appliedPromo ? (
-                      <>
-                        <span className="line-through opacity-60 mr-1">
-                          {basePackagePrice}
-                        </span>
-                        {discountedPackagePrice.toFixed(2)}
-                      </>
-                    ) : (
-                      basePackagePrice
-                    )}{" "}
-                    EGP:
-                    {checkoutMode !== "upgrade" && includeAnswersAddon && (
-                      <span className="block text-[10px] font-normal opacity-80">
-                        Includes the Answers Review Add-on (+
-                        {selectedPackage?.answersPrice} EGP)
-                      </span>
-                    )}
-                    <br />
-                    <span className="font-normal opacity-70 text-[10px]">
-                      You'll be redirected to a secure payment gateway.
-                    </span>
-                  </p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={posting || !selectedMethod}
-                className="w-full bg-one text-white py-6 rounded-[1.5rem] font-black shadow-2xl shadow-one/30 hover:-translate-y-1 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale"
-              >
-                {posting
-                  ? "PROCESSING..."
-                  : selectedMethod?.type === "Automatic"
-                    ? "PROCEED TO SECURE PAY"
-                    : checkoutMode === "upgrade"
-                      ? "CONFIRM UPGRADE"
-                      : "CONFIRM PURCHASE"}
-              </button>
-            </form>
+            )}
           </div>
-        </div>
+
+          <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2">Payment method</p>
+          {methodsLoading || (!methodsData && !methodsError) ? <div className="skel h-20 mb-4"></div> : (
+            <div className="mb-4"><PayMethods methods={paymentMethods} selected={selectedMethod} onSelect={setSelectedMethod} group="pkg-pay" /></div>
+          )}
+
+          {selectedMethod?.type === "Manual" && (
+            <div className="bg-slate-50 rounded-xl p-4 mb-4">
+              <p className="text-sm text-slate-600 mb-3">
+                Transfer <b>{money(discountedPackagePrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot below.
+                {checkoutMode !== "upgrade" && includeAnswersAddon && <span className="block text-xs text-blue-700 font-semibold mt-1">Includes the answers review add-on (+{money(selectedPackage.answersPrice)})</span>}
+              </p>
+              <ReceiptUpload value={receiptImg} fileName={receiptName} methodName={selectedMethod.name} onPick={handleFileChange} onRemove={() => { setReceiptImg(""); setReceiptName(""); }} />
+            </div>
+          )}
+          {selectedMethod?.type === "Automatic" && (
+            <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3 mb-4">
+              Instant activation — you'll be redirected to a secure payment page to pay <b>{money(discountedPackagePrice)}</b>.
+              {checkoutMode !== "upgrade" && includeAnswersAddon && <span className="block mt-1">Includes the answers review add-on (+{money(selectedPackage.answersPrice)}).</span>}
+            </p>
+          )}
+
+          {checkoutMode === "buy" && (
+            <>
+              <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2">Promo code</p>
+              <PromoBox
+                code={promoCode}
+                setCode={setPromoCode}
+                applied={appliedPromo}
+                error={promoError}
+                validating={validatingPromo}
+                onApply={handleApplyPromo}
+                onRemove={resetPromoState}
+              />
+            </>
+          )}
+
+          <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
+            <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span className="font-bold text-gray-900">{money(basePackagePrice)}</span></div>
+            {appliedPromo && (
+              <div className="flex justify-between"><span className="text-slate-500">Discount ({appliedPromo.code})</span><span className="font-bold text-green-700">− {money(basePackagePrice - discountedPackagePrice)}</span></div>
+            )}
+            <div className="flex justify-between items-baseline"><span className="font-extrabold text-gray-900">Total</span><span className="font-extrabold text-xl text-gray-900">{money(discountedPackagePrice)}</span></div>
+          </div>
+        </Modal>
       )}
-    </div>
+    </Page>
   );
 };
 

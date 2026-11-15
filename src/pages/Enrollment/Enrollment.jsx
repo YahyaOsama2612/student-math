@@ -1,86 +1,54 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
-import {
-  ArrowLeft,
-  CreditCard,
-  UploadCloud,
-  CheckCircle2,
-  AlertCircle,
-  Wallet,
-  Tag,
-  TicketPercent,
-  Loader2,
-  X,
-} from "lucide-react";
-import Loader from "@/components/Loading";
-import Errorpage from "@/components/Errorpage";
 import { toast } from "react-hot-toast";
 import usePost from "../../hooks/usePost";
+import Icon from "@/components/portal/Icon";
+import { EmptyCard, Page, PageHead } from "@/components/portal/ui";
+import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, money } from "@/pages/Payment/storeParts";
+
+/* Checkout (MathPortal design: renderCheckout) for the courses / chapters / lessons picked in the Store.
+   Receives the selection in location.state and posts it to /api/user/enrollment/enroll. */
+
+const KIND_OF_KEY = { courses: "course", chapters: "chapter", lessons: "lesson", packages: "package" };
 
 const Enrollment = () => {
   const navigate = useNavigate();
   const { state } = useLocation();
 
-  // البيانات المستلمة من الصفحات السابقة
+  // what the previous page sent
   const itemToBuy = state || {};
-  const { postData, loading: submitting } = usePost(
-    "/api/user/enrollment/enroll",
-  );
+  const { postData, loading: submitting } = usePost("/api/user/enrollment/enroll");
   const { data, loading, error } = useGet("/api/user/payment/payment-methods");
   const paymentMethods = data?.data?.paymentMethods || [];
 
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [base64Image, setBase64Image] = useState(null);
+  const [imageName, setImageName] = useState("");
+  const [placed, setPlaced] = useState(false);
 
-  // ---- Promo code state ----
+  // ---- Promo code ----
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState(null);
   const [appliedPromo, setAppliedPromo] = useState(null); // { code, discountAmount }
-  const { postData: validatePromo, loading: validatingPromo } = usePost(
-    "/api/user/promo-codes/validate",
-  );
+  const { postData: validatePromo, loading: validatingPromo } = usePost("/api/user/promo-codes/validate");
 
-  // نفس منطق تحديد نوع العنصر المستخدم في handlePayment، لكن بيتحسب هنا كمان
-  // عشان نقدر نبني الـ items payload بتاع الـ promo code بنفس القيم الحقيقية
+  // which backend key the items go under (courses / chapters / lessons / packages)
   const resolveApiKey = () => {
-    if (itemToBuy.type === "chapterId" || itemToBuy.type === "chapterIds") {
-      return "chapters";
-    }
-    if (itemToBuy.type === "lessonId" || itemToBuy.type === "lessonIds") {
-      return "lessons";
-    }
-    if (itemToBuy.type === "packageId" || itemToBuy.type === "packageIds") {
-      return "packages";
-    }
+    if (itemToBuy.type === "chapterId" || itemToBuy.type === "chapterIds") return "chapters";
+    if (itemToBuy.type === "lessonId" || itemToBuy.type === "lessonIds") return "lessons";
+    if (itemToBuy.type === "packageId" || itemToBuy.type === "packageIds") return "packages";
     return "courses";
   };
 
   const getSelectedIds = () =>
     itemToBuy.selectedItems
-      ?.map(
-        (item) =>
-          item.id ||
-          item.courseId ||
-          item.chapterId ||
-          item.lessonId ||
-          item.packageId,
-      )
+      ?.map((item) => item.id || item.courseId || item.chapterId || item.lessonId || item.packageId)
       .filter(Boolean) || [];
 
   const buildPromoItems = () => {
-    const keyMap = {
-      courses: "courseIds",
-      chapters: "chapterIds",
-      lessons: "lessonIds",
-      packages: "packageIds",
-    };
-    const items = {
-      packageIds: [],
-      courseIds: [],
-      chapterIds: [],
-      lessonIds: [],
-    };
+    const keyMap = { courses: "courseIds", chapters: "chapterIds", lessons: "lessonIds", packages: "packageIds" };
+    const items = { packageIds: [], courseIds: [], chapterIds: [], lessonIds: [] };
     items[keyMap[resolveApiKey()]] = getSelectedIds();
     return items;
   };
@@ -89,10 +57,7 @@ const Enrollment = () => {
     if (!promoCode.trim()) return;
     setPromoError(null);
     try {
-      const json = await validatePromo({
-        code: promoCode.trim().toUpperCase(),
-        items: buildPromoItems(),
-      });
+      const json = await validatePromo({ code: promoCode.trim().toUpperCase(), items: buildPromoItems() });
       if (json?.success) {
         setAppliedPromo({
           code: promoCode.trim().toUpperCase(),
@@ -100,9 +65,7 @@ const Enrollment = () => {
         });
         toast.success("Promo code applied!");
       } else {
-        setPromoError(
-          json?.error?.message || json?.message || "Invalid promo code",
-        );
+        setPromoError(json?.error?.message || json?.message || "Invalid promo code");
       }
     } catch (err) {
       setPromoError(err.message || "This code couldn't be validated");
@@ -120,12 +83,15 @@ const Enrollment = () => {
     ? originalPrice - (originalPrice * appliedPromo.discountAmount) / 100
     : originalPrice;
 
-  // تحويل الصورة لـ Base64 في حالة الدفع اليدوي
+  // receipt image → base64 (manual methods)
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setBase64Image(reader.result);
+      reader.onloadend = () => {
+        setBase64Image(reader.result);
+        setImageName(file.name);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -137,59 +103,47 @@ const Enrollment = () => {
       return toast.error("Please upload the transaction receipt");
     }
 
-    // 1. تحديد المفتاح المناسب للباك-إند (courses أو chapters أو lessons) بناءً على الـ type القادم
+    // 1. backend key (courses / chapters / lessons) from the incoming type
     const apiKey = resolveApiKey();
 
-    // 2. تشكيل مصفوفة العناصر بالصيغة الهيكلية التي يطلبها الباك-إند: { id, priceId }
-    // نقوم بفحص item.id أو item.courseId / item.chapterId / item.lessonId لضمان جلب الـ ID بشكل صحيح مهما كان مصدر الصفحة
+    // 2. items as { id, priceId } — the plan id is the price id
     const formattedItems =
       itemToBuy.selectedItems
         ?.map((item) => ({
           id: item.id || item.courseId || item.chapterId || item.lessonId,
-          priceId: item.planId, // الـ planId هو الـ priceId المطلوب من الباك-إند
+          priceId: item.planId,
         }))
         .filter((item) => item.id && item.priceId) || [];
 
-    // 3. بناء الـ Payload النهائي ومطابقته لطلب الباك-إند تماماً
+    // 3. payload
     const payload = {
-      paymentType:
-        selectedMethod.type.toLowerCase() === "automatic" ? "wallet" : "manual",
-      [apiKey]: formattedItems, // تمرير المصفوفة المهيكلة (id و priceId) داخل المفتاح الديناميكي
+      paymentType: selectedMethod.type.toLowerCase() === "automatic" ? "wallet" : "manual",
+      [apiKey]: formattedItems,
     };
 
-    // إرسال الـ paymentMethodId
     if (selectedMethod.id) {
       payload.paymentMethodId = selectedMethod.id;
     }
 
-    // إضافة الصورة في حالة الدفع اليدوي
     if (selectedMethod.type === "Manual") {
       payload.image = base64Image;
     }
 
-    // تمرير كود الخصم لو اتطبق
     if (appliedPromo?.code) {
       payload.promoCode = appliedPromo.code;
     }
 
     try {
-      const res = await postData(
-        payload,
-        null,
-        "Enrollment request submitted successfully!",
-      );
+      const res = await postData(payload, null, "Enrollment request submitted successfully!");
 
-      const redirectUrl =
-        res?.checkoutUrl ||
-        res?.paymentUrl ||
-        res?.data?.checkoutUrl ||
-        res?.data?.paymentUrl;
+      const redirectUrl = res?.checkoutUrl || res?.paymentUrl || res?.data?.checkoutUrl || res?.data?.paymentUrl;
 
       if (redirectUrl) {
         window.location.href = redirectUrl;
         return;
       }
 
+      setPlaced(true);
       setTimeout(() => {
         navigate("/user/home");
       }, 1500);
@@ -198,239 +152,132 @@ const Enrollment = () => {
     }
   };
 
-  if (loading) return <Loader />;
-  if (error) return <Errorpage />;
+  if (!state) {
+    return (
+      <Page>
+        <EmptyCard
+          title="Nothing to check out"
+          text="Pick courses, chapters or lessons in the Store first."
+          action={<button className="btn-primary !w-auto mx-auto" onClick={() => navigate("/user/payment")}>Open the Store</button>}
+        />
+      </Page>
+    );
+  }
+
+  const kind = KIND_OF_KEY[resolveApiKey()];
+  const items = itemToBuy.selectedItems && itemToBuy.selectedItems.length > 0 ? itemToBuy.selectedItems : null;
+  const count = items ? items.length : 1;
+
+  if (placed) {
+    return (
+      <Page>
+        <div className="max-w-2xl mx-auto">
+          <section className="card p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4"><Icon name="check" size={30} /></div>
+            <h2 className="text-2xl font-extrabold text-gray-900">Order placed</h2>
+            <p className="text-sm text-slate-500 mt-1">Your {selectedMethod?.name} request was sent. Your items unlock once the payment is confirmed.</p>
+            <p className="text-lg font-extrabold text-gray-900 mt-3">{money(discountedPrice)}</p>
+            <p className="text-xs text-slate-400 mt-4">Taking you home…</p>
+          </section>
+        </div>
+      </Page>
+    );
+  }
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto min-h-screen">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-gray-500 mb-8 hover:text-one transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back
-      </button>
+    <Page wide>
+      <div className="max-w-6xl mx-auto">
+        <PageHead title="Checkout" text="Prices are in EGP. Choose one of the payment methods MathPortal has enabled.">
+          <button className="btn-ghost" onClick={() => navigate(-1)}>← Continue shopping</button>
+        </PageHead>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* سيكشن ملخص الطلب */}
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-gray-800">Checkout</h2>
-
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
-              Order Summary
-            </h3>
-
-            {/* 1. لو البيانات جاية في مصفوفة تفصيلية */}
-            {itemToBuy.selectedItems && itemToBuy.selectedItems.length > 0 ? (
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 mb-4">
-                {itemToBuy.selectedItems.map((item, idx) => {
-                  const displayName =
-                    item.courseName ||
-                    item.chapterName ||
-                    item.lessonName ||
-                    item.name;
-
-                  return (
-                    <div
-                      key={item.id || idx}
-                      className="flex justify-between items-start gap-4 p-3.5 bg-gray-50 rounded-2xl border border-gray-100 hover:border-gray-200 transition-all"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <span className="block font-bold text-gray-800 text-sm truncate">
-                          {displayName}
-                        </span>
-
-                        {/* عرض خطة السعر المحددة */}
-                        {item.planLabel && (
-                          <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 bg-one/10 text-one text-[10px] font-black rounded-md">
-                            <Tag className="w-3 h-3" /> {item.planLabel}
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-extrabold text-gray-900 text-sm shrink-0">
-                        {item.price} LE
-                      </span>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3 flex flex-col gap-4">
+            {/* 1. Items */}
+            <section className="card p-6">
+              <h3 className="font-extrabold text-gray-900 mb-2">1. Order items</h3>
+              <div className="divide-y divide-slate-100">
+                {items ? items.map((item, idx) => (
+                  <div key={item.id || item.courseId || item.chapterId || item.lessonId || idx} className="flex items-start gap-3 py-3">
+                    <span className={`kind-pill kind-${kind === "package" ? "sessions" : kind}`}>{KIND_LABEL[kind]}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-900">{item.courseName || item.chapterName || item.lessonName || item.name}</p>
+                      {item.planLabel && <p className="text-xs text-slate-400">Access plan: {item.planLabel}</p>}
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* 2. حالة احتياطية fallback */
-              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl mb-4 border border-gray-100">
-                <span className="text-gray-800 font-bold text-sm">
-                  {itemToBuy.name || "Item Summary"}
-                </span>
-                <span className="font-extrabold text-gray-900 text-sm">
-                  {itemToBuy.price} LE
-                </span>
-              </div>
-            )}
-
-            {/* المجموع الكلي */}
-            <div className="pt-4 border-t border-dashed mt-4 flex justify-between items-center text-lg">
-              <span className="font-bold text-gray-700">Total Amount</span>
-              <span className="flex items-baseline gap-2">
-                {appliedPromo && (
-                  <span className="text-sm text-gray-400 line-through">
-                    {originalPrice} LE
-                  </span>
-                )}
-                <span className="font-black text-one text-xl">
-                  {discountedPrice.toFixed(2)} LE
-                </span>
-              </span>
-            </div>
-          </div>
-
-          {/* كود الخصم */}
-          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-            <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-3">
-              <TicketPercent className="w-4 h-4 text-one" /> Promo Code
-            </h3>
-
-            {appliedPromo ? (
-              <div className="flex items-center justify-between p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
-                <div className="flex items-center gap-2 text-emerald-800 text-sm font-bold">
-                  <CheckCircle2 className="w-4 h-4" />
-                  {appliedPromo.code} applied — {appliedPromo.discountAmount}%
-                  off
-                </div>
-                <button
-                  onClick={handleRemovePromo}
-                  className="text-emerald-700 hover:text-emerald-900"
-                  title="Remove promo code"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div>
-                <div className="flex gap-2">
-                  <input
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                    placeholder="Enter promo code"
-                    className="flex-1 font-mono tracking-wide px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-one/40 focus:border-one/40"
-                  />
-                  <button
-                    onClick={handleApplyPromo}
-                    disabled={validatingPromo || !promoCode.trim()}
-                    className="flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {validatingPromo && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    )}
-                    Apply
-                  </button>
-                </div>
-                {promoError && (
-                  <p className="mt-2 text-xs text-red-600">{promoError}</p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <p className="text-sm text-amber-800">
-              For manual methods like <b>Vodafone Cash</b>, please upload a
-              screenshot of the transaction after transferring the amount.
-            </p>
-          </div>
-        </div>
-
-        {/* سيكشن اختيار وسيلة الدفع */}
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-one" /> Payment Methods
-          </h3>
-
-          <div className="grid grid-cols-1 gap-3">
-            {paymentMethods.map((method) => (
-              <button
-                key={method.id}
-                type="button"
-                onClick={() => setSelectedMethod(method)}
-                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
-                  selectedMethod?.id === method.id
-                    ? "border-one bg-one/5 shadow-md shadow-one/5"
-                    : "border-gray-50 bg-gray-50/50 hover:border-gray-200"
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <img
-                    src={method.logo}
-                    alt={method.name}
-                    className="w-10 h-10 rounded-xl object-cover border bg-white"
-                  />
-                  <div className="text-left">
-                    <span className="block font-bold text-gray-800">
-                      {method.name}
-                    </span>
-                    <span className="text-xs text-gray-400">{method.type}</span>
+                    <p className="text-sm font-extrabold text-gray-900 whitespace-nowrap">{money(item.price)}</p>
                   </div>
-                </div>
-                {selectedMethod?.id === method.id && (
-                  <CheckCircle2 className="w-5 h-5 text-one" />
+                )) : (
+                  <div className="flex items-start gap-3 py-3">
+                    <span className={`kind-pill kind-${kind === "package" ? "sessions" : kind}`}>{KIND_LABEL[kind]}</span>
+                    <p className="flex-1 text-sm font-bold text-gray-900">{itemToBuy.name || "Item Summary"}</p>
+                    <p className="text-sm font-extrabold text-gray-900 whitespace-nowrap">{money(itemToBuy.price)}</p>
+                  </div>
                 )}
+              </div>
+            </section>
+
+            {/* 2. Payment method */}
+            <section className="card p-6">
+              <h3 className="font-extrabold text-gray-900 mb-4">2. Payment method</h3>
+              {loading || (!data && !error) ? <div className="skel h-24"></div> : error ? <ErrorCard text="Could not load the payment methods." /> : (
+                <PayMethods methods={paymentMethods} selected={selectedMethod} onSelect={setSelectedMethod} group="enroll-pay" />
+              )}
+
+              {selectedMethod?.type === "Manual" && (
+                <div className="mt-4 bg-slate-50 rounded-xl p-4">
+                  <p className="text-sm text-slate-600 mb-3">
+                    Send <b>{money(discountedPrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot of the transfer. The admin approves the payment and your items unlock.
+                  </p>
+                  <p className="text-xs font-bold text-slate-500 mb-1">Payment screenshot <span className="text-red-500">*</span></p>
+                  <ReceiptUpload
+                    value={base64Image}
+                    fileName={imageName}
+                    methodName={selectedMethod.name}
+                    onPick={handleImageChange}
+                    onRemove={() => { setBase64Image(null); setImageName(""); }}
+                  />
+                </div>
+              )}
+              {selectedMethod?.type === "Automatic" && (
+                <p className="text-xs text-slate-500 mt-4 bg-slate-50 rounded-xl p-3">
+                  Instant payment. If this method needs a payment page, you are taken there to finish — your items unlock as soon as the payment is confirmed.
+                </p>
+              )}
+            </section>
+          </div>
+
+          {/* Summary */}
+          <aside className="lg:col-span-2">
+            <section className="card p-6 lg:sticky lg:top-24">
+              <h3 className="font-extrabold text-gray-900 mb-4">Order summary</h3>
+              <PromoBox
+                code={promoCode}
+                setCode={setPromoCode}
+                applied={appliedPromo}
+                error={promoError}
+                validating={validatingPromo}
+                onApply={handleApplyPromo}
+                onRemove={handleRemovePromo}
+              />
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-slate-500">Subtotal ({count} item{count === 1 ? "" : "s"})</span><span className="font-bold">{money(originalPrice)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Discount{appliedPromo ? ` (${appliedPromo.discountAmount}%)` : ""}</span>
+                  <span className={`font-bold ${appliedPromo ? "text-green-700" : ""}`}>{appliedPromo ? `− ${money(originalPrice - discountedPrice)}` : money(0)}</span>
+                </div>
+                <div className="flex justify-between items-baseline border-t border-slate-100 pt-3 mt-3">
+                  <span className="font-extrabold text-gray-900">Total</span>
+                  <span className="font-extrabold text-2xl text-gray-900">{money(discountedPrice)}</span>
+                </div>
+              </div>
+              <button className="btn-primary mt-5" onClick={handlePayment} disabled={submitting} style={submitting ? { opacity: 0.6 } : undefined}>
+                {submitting ? "Processing…" : <><Icon name="wallet" size={18} /> Place order · {money(discountedPrice)}</>}
               </button>
-            ))}
-          </div>
-
-          {/* رفع إيصال التحويل للمانويال */}
-          {selectedMethod?.type === "Manual" && (
-            <div className="mt-6 space-y-3 animate-in fade-in duration-200">
-              <label className="text-sm font-bold text-gray-700 block">
-                Upload Transfer Receipt
-              </label>
-              <div className="relative border-2 border-dashed border-gray-200 rounded-2xl p-6 hover:bg-gray-50 transition-colors text-center">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-                {base64Image ? (
-                  <div className="flex flex-col items-center">
-                    <img
-                      src={base64Image}
-                      className="w-24 h-24 object-cover rounded-lg mb-2 shadow-sm"
-                      alt="Preview"
-                    />
-                    <span className="text-xs text-one font-bold">
-                      Change Image
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center text-gray-400">
-                    <UploadCloud className="w-10 h-10 mb-2" />
-                    <span className="text-sm">Click to upload screenshot</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <button
-            onClick={handlePayment}
-            disabled={submitting}
-            className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all shadow-lg flex items-center justify-center gap-2 ${
-              submitting
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-one hover:scale-[1.01] active:scale-95 shadow-one/20"
-            }`}
-          >
-            {submitting ? (
-              "Processing..."
-            ) : (
-              <>
-                <Wallet className="w-5 h-5" /> Confirm Enrollment
-              </>
-            )}
-          </button>
+            </section>
+          </aside>
         </div>
       </div>
-    </div>
+    </Page>
   );
 };
 
