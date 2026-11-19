@@ -4,6 +4,7 @@ import useGet from "@/hooks/useGet";
 import Icon from "@/components/portal/Icon";
 import { Kpi, Modal, Page, PageHead } from "@/components/portal/ui";
 import ReportsTabsHeader from "./ReportsTabsHeader";
+import { useStartQuiz } from "@/pages/Lesson/parts/LessonParts";
 import {
   ErrorCard,
   Legend,
@@ -15,6 +16,7 @@ import {
   SearchBox,
   TabChip,
   VideoModal,
+  MistakesLocked,
   downloadCsv,
   extractList,
   fmtShort,
@@ -88,6 +90,8 @@ const QuizReports = () => {
   // { success, data: { message, data: [] } } | { data: [] } | []
   const quizzes = useMemo(() => extractList(response), [response]);
   const courses = useMemo(() => (Array.isArray(response?.data?.courses) ? response.data.courses : []), [response]);
+  // false → the student hasn't bought mistakes (a package with answers)
+  const mistakesUnlocked = response?.data?.mistakesUnlocked !== false;
   const courseName = courses.find((c) => c.id === courseId)?.name;
 
   /* ---------- Filtered quizzes ---------- */
@@ -374,6 +378,7 @@ const QuizReports = () => {
       {openQuiz && (
         <QuizModal
           quiz={openQuiz}
+          mistakesUnlocked={mistakesUnlocked}
           onClose={() => setOpenQuiz(null)}
           onOpenLesson={openLesson}
           onOpenPdf={(url, title) => setPdfModal({ url, title })}
@@ -391,7 +396,9 @@ const QuizReports = () => {
 /* Quiz detail (design: Sheet.quizInfo → wide modal)                   */
 /* ------------------------------------------------------------------ */
 
-const QuizModal = ({ quiz, onClose, onOpenLesson, onOpenPdf, onOpenVideo }) => {
+const QuizModal = ({ quiz, mistakesUnlocked, onClose, onOpenLesson, onOpenPdf, onOpenVideo }) => {
+  const { start, startingId } = useStartQuiz();
+  const navigate = useNavigate();
   const pct = percentOf(quiz);
   const passPct = passPercentOf(quiz);
   const done = isDone(quiz);
@@ -414,6 +421,14 @@ const QuizModal = ({ quiz, onClose, onOpenLesson, onOpenPdf, onOpenVideo }) => {
       actions={
         <>
           <button type="button" className="pl-btn" onClick={onClose}>Close</button>
+          {quiz.attemptId && done && (
+            <button type="button" className="pl-btn" onClick={() => navigate(`/user/quiz-result/${quiz.attemptId}`)}>Full result</button>
+          )}
+          {quiz.isActive !== false && !passed && (
+            <button type="button" className="pl-btn primary" disabled={startingId === quiz.quizId} onClick={() => start({ id: quiz.quizId })}>
+              {startingId === quiz.quizId ? "Starting…" : done ? "Retake quiz" : "Take quiz"}
+            </button>
+          )}
           {quiz.lesson?.id && (
             <button type="button" className="pl-btn primary" onClick={() => onOpenLesson(quiz.lesson.id)}>
               <Icon name="book" size={15} /> Study the lesson
@@ -454,7 +469,9 @@ const QuizModal = ({ quiz, onClose, onOpenLesson, onOpenPdf, onOpenVideo }) => {
         />
       </div>
 
-      {mistakes.length ? (
+      {done && !mistakesUnlocked && mistakesOf(quiz) > 0 ? (
+        <MistakesLocked count={mistakesOf(quiz)} />
+      ) : mistakes.length ? (
         <>
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Your mistakes</p>
           <div className="flex flex-col gap-2 mb-2">

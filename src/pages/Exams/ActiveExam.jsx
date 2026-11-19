@@ -16,6 +16,7 @@ import {
   Play,
 } from "lucide-react";
 import usePost from "@/hooks/usePost";
+import api from "@/api/api";
 import Swal from "sweetalert2";
 import { BiMath } from "react-icons/bi";
 
@@ -436,14 +437,23 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     location.state?.type ||
     (location.pathname.includes("/exams") ? "exam" : "diagnostic");
 
-  const id = examProp?.id ?? params.id;
+  const id = examProp?.id ?? params.id ?? params.quizId;
+  const isQuiz = examMode === "quiz";
 
   const endpoint =
     examMode === "exam"
       ? `/api/user/exams/${id}`
-      : `/api/user/diagnostic-exams/${id}/questions`;
+      : isQuiz
+        ? `/api/user/quizzes/${id}/questions`
+        : `/api/user/diagnostic-exams/${id}/questions`;
 
   const { data: apiResponse, loading, error } = useGet(endpoint);
+  // Quiz: title, duration and the in-progress attempt (its start time drives the countdown, also after a refresh)
+  const { data: quizInfo, refetch: refetchQuizInfo } = useGet(isQuiz ? `/api/user/quizzes/${id}` : null);
+  const quizMeta = quizInfo?.data?.quiz;
+  const quizAttempt = quizInfo?.data?.attempt;
+  const quizSeconds = ((Number(quizMeta?.durationHours) || 0) * 60 + (Number(quizMeta?.durationMinutes) || 0)) * 60;
+  const quizNoLimit = isQuiz && !!quizMeta && quizSeconds === 0;
 
   const diagnosticDuration = location.state?.exam;
   const attemptIdFromState = location.state?.attemptId;
@@ -470,7 +480,13 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const { postData, loading: userLoading } = usePost("");
 
-  const [timeLeft, setTimeLeft] = useState(diagnosticDuration * 60 || 60 * 60);
+  const [timeLeft, setTimeLeft] = useState(isQuiz ? null : diagnosticDuration * 60 || 60 * 60);
+  useEffect(() => {
+    if (!isQuiz || !quizMeta || quizSeconds === 0) return;
+    const startedAt = quizAttempt?.status === "in_progress" && quizAttempt?.startedAt ? new Date(quizAttempt.startedAt).getTime() : Date.now();
+    setTimeLeft(Math.max(0, Math.round(quizSeconds - (Date.now() - startedAt) / 1000)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQuiz, quizMeta, quizAttempt]);
   const [isImageZoomed, setIsImageZoomed] = useState(false);
 
   const sectionSecondsLeft = useCountdown(sectionEndsAt);
@@ -655,7 +671,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   // Diagnostic exams keep the single countdown. Exam sections use
   // sectionEndsAt / useCountdown instead.
   useEffect(() => {
-    if (examMode === "exam" || timeLeft <= 0) return;
+    if (examMode === "exam" || timeLeft == null || timeLeft <= 0) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => prev - 1);
     }, 1000);
@@ -678,6 +694,65 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const isAnswered = (value) =>
     value !== undefined && value !== null && value.toString().trim() !== "";
+
+  // Quiz opened without pressing Start (e.g. a refreshed or shared link): start the attempt here
+  const quizStartRef = useRef(false);
+  useEffect(() => {
+    if (!isQuiz || !quizInfo || quizStartRef.current) return;
+    if (quizAttempt?.status === "in_progress") return;
+    quizStartRef.current = true;
+    api.post(`/api/user/quizzes/${id}/start`, {})
+      .then(() => refetchQuizInfo())
+      .catch((err) => {
+        Swal.fire({ title: "Can't open this quiz", text: getErrorMessage(err?.response?.data?.error?.message || err, "Please try again."), icon: "info", confirmButtonColor: "#7d0a0a" })
+          .then(() => navigate(-1));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQuiz, quizInfo, quizAttempt]);
+
+  // ── Quiz: one submit for the whole list → the result page ────────────────
+  const quizSubmittingRef = useRef(false);
+  const submitQuiz = async ({ auto = false } = {}) => {
+    if (quizSubmittingRef.current) return;
+    const unanswered = questions.filter((q) => !isAnswered(answers[q.id])).length;
+    if (!auto && unanswered > 0) {
+      const result = await Swal.fire({
+        title: "Submit quiz?",
+        text: `You have ${unanswered} unanswered question${unanswered === 1 ? "" : "s"}.`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#7d0a0a",
+        cancelButtonColor: "#64748b",
+        confirmButtonText: "Submit anyway",
+        cancelButtonText: "Keep answering",
+      });
+      if (!result.isConfirmed) return;
+    }
+    quizSubmittingRef.current = true;
+    const payload = {
+      answers: questions.map((q) => ({
+        questionId: q.id,
+        selectedOptionId: q.answerType === "Grid in" ? null : answers[q.id] || null,
+        gridInAnswer: q.answerType === "Grid in" && isAnswered(answers[q.id]) ? resolveGridInValue(answers[q.id]) : null,
+      })),
+    };
+    try {
+      const res = await postData(payload, `/api/user/quizzes/${id}/submit`, auto ? "Time's up — quiz submitted" : "Quiz submitted");
+      const resultId = res?.data?.result?.attemptId;
+      if (resultId) navigate(`/user/quiz-result/${resultId}`, { replace: true });
+      else navigate(-1);
+    } catch (err) {
+      quizSubmittingRef.current = false;
+      console.error("Error submitting quiz:", err);
+    }
+  };
+
+  // Quiz time is up → submit automatically
+  useEffect(() => {
+    if (!isQuiz || timeLeft == null || timeLeft > 0 || !questions.length) return;
+    submitQuiz({ auto: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQuiz, timeLeft, questions.length]);
 
   // ── Diagnostic exam: one submit for the whole list (unchanged behaviour) ────
   const handleSubmit = async () => {
@@ -1128,6 +1203,14 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
                 </button>
               </>
             )}
+            {isQuiz && (
+              <span className="hidden sm:inline text-xs font-bold text-gray-500 max-w-[240px] truncate" title={quizMeta?.title}>
+                {quizMeta?.title || "Quiz"}
+              </span>
+            )}
+            {quizNoLimit || timerSeconds == null ? (
+              isQuiz && <span className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 bg-white border border-gray-200">No time limit</span>
+            ) : (
             <div
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black border-2 text-sm shadow-sm transition-colors ${
                 timerSeconds < 300
@@ -1145,6 +1228,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
                 {formatTime(timerSeconds)}
               </span>
             </div>
+            )}
           </div>
         </div>
 
@@ -1279,7 +1363,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
           {isLastQuestion ? (
             <button
               onClick={() =>
-                examMode === "exam" ? submitSection() : handleSubmit()
+                examMode === "exam" ? submitSection() : isQuiz ? submitQuiz() : handleSubmit()
               }
               disabled={userLoading}
               className={`px-6 py-2 rounded-lg font-bold text-white text-xs transition flex items-center gap-1 ${userLoading ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}

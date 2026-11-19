@@ -33,7 +33,7 @@ import Enrollment from "../pages/Enrollment/Enrollment";
 import Purchases from "../pages/Purchases/purchases";
 import PendingPurchases from "../pages/Purchases/PendingPurchase";
 import ContentDetails from "../pages/Purchases/ContentDetails";
-import Quiz from "../pages/Quizes/quiz";
+import QuizResult from "../pages/Quizes/QuizResult";
 import PromoPage from "../pages/PromoCode/promo";
 import RemainingHomework from "../pages/Remaining/Remaining";
 import AvailabilityPlans from "../pages/AvailabilityPlans/AvailabilityPlans";
@@ -176,7 +176,12 @@ const router = createBrowserRouter([
       },
       {
         path: "quiz/:quizId",
-        element: <Quiz />
+        // quizzes use the same full-screen player as exams and diagnostic exams
+        element: <ActiveExam examMode="quiz" />,
+      },
+      {
+        path: "quiz-result/:attemptId",
+        element: <QuizResult />,
       },
       {
         path: "remaining",

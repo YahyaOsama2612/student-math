@@ -41,7 +41,9 @@ export default function Exams({ kind = "exam" }) {
       })));
     }
     return (examData?.data?.courses || []).flatMap((c) => (c.exams || []).map((e) => ({
-      id: e.id, name: e.title, description: e.description, family: e.codeName || c.name || "Exams", raw: e,
+      id: e.id, name: e.title, description: e.description, family: e.codeName || c.name || "Exams", minutes: e.duration,
+      // the server knows if it was taken (attempt) and if an admin assigned it (free, no balance needed)
+      done: !!(e.attempt && e.attempt.status !== "in_progress"), assigned: !!e.assigned, raw: e,
     })));
   }, [isD, examData, diagData]);
 
@@ -132,7 +134,10 @@ export default function Exams({ kind = "exam" }) {
               return (
                 <div key={p.id} className="card p-5 flex flex-col">
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <span className="pl-course">{p.family}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      <span className="pl-course">{p.family}</span>
+                      {p.assigned && <span className="st-pill" style={{ color: "#7d0a0a", background: "#fef2f2", borderColor: "#fecaca" }} title="Your admin assigned this exam to you. It doesn't use your exam balance.">Assigned to you</span>}
+                    </span>
                     {taken
                       ? <span className="st-pill" style={{ color: "#15803d", background: "#f0fdf4", borderColor: "#bbf7d0" }}>Taken</span>
                       : <span className="st-pill" style={{ color: "#64748b", background: "#f8fafc", borderColor: "#e2e8f0" }}>Not taken</span>}
@@ -180,6 +185,7 @@ export default function Exams({ kind = "exam" }) {
             {confirm.minutes ? <li>⏱️ <b>Duration:</b> {confirm.minutes} minutes</li> : null}
             {confirm.questions ? <li>❓ <b>Questions:</b> {confirm.questions}</li> : null}
             {!isD && <li>The timer starts per section once you begin it.</li>}
+            {!isD && <li>{confirm.assigned ? "🎁 Assigned to you — this exam doesn't use your exam balance." : "🎟️ This uses 1 exam from your exam balance."}</li>}
           </ul>
         </Modal>
       )}

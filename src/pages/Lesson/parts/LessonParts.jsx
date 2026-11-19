@@ -44,8 +44,14 @@ export const ideaVideo = (idea) => {
 };
 
 export const quizMeta = (q) => {
-  const mins = q.durationMinutes || (q.durationHours ? q.durationHours * 60 : 0);
-  return [mins ? `${mins} min` : "", q.totalScore != null ? `Score ${q.totalScore}` : "", q.type || ""].filter(Boolean).join(" · ") || "Quiz";
+  // hours and minutes together (1 h 30 min used to show as "30 min")
+  const mins = (Number(q.durationHours) || 0) * 60 + (Number(q.durationMinutes) || 0);
+  const a = q.lastAttempt;
+  return [
+    mins ? `${mins} min` : "",
+    q.totalScore != null ? `Score ${q.totalScore}` : "",
+    a ? `Last result ${a.score ?? 0}/${q.totalScore ?? "—"} ${a.isPassed ? "✓ passed" : "✕ not passed"}` : "",
+  ].filter(Boolean).join(" · ") || "Quiz";
 };
 
 /** POST /start then open the quiz player (same calls as before). */
@@ -67,17 +73,28 @@ export function useStartQuiz() {
   return { start, startingId };
 }
 
-export const QuizRow = ({ quiz, open = true, startingId, onStart }) => (
+export const QuizRow = ({ quiz, open = true, startingId, onStart }) => {
+  const navigate = useNavigate();
+  const a = quiz.lastAttempt;
+  return (
   <MatRow icon="exam" tone="purple" title={quiz.title} meta={quizMeta(quiz)}>
     {open ? (
-      <button className="pl-btn primary" disabled={startingId === quiz.id} onClick={() => onStart(quiz)}>
-        {startingId === quiz.id ? "Starting…" : "Start quiz"}
-      </button>
+      <span className="flex flex-wrap gap-2">
+        {a && (
+          <button className="pl-btn" onClick={() => navigate(`/user/quiz-result/${a.id}`)}>View result</button>
+        )}
+        {!a?.isPassed && (
+          <button className="pl-btn primary" disabled={startingId === quiz.id} onClick={() => onStart(quiz)}>
+            {startingId === quiz.id ? "Starting…" : a ? "Retake" : "Start quiz"}
+          </button>
+        )}
+      </span>
     ) : (
       <span className="text-slate-300" title="Locked"><Icon name="lock" size={16} /></span>
     )}
   </MatRow>
-);
+  );
+};
 
 export const LoadingPage = () => (
   <>

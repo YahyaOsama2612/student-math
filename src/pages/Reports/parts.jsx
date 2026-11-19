@@ -1,6 +1,8 @@
 // Shared pieces of the Reports pages (Subjects | EXAM | Diagnose), in the MathPortal design.
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Icon from "@/components/portal/Icon";
+import HlsPlayer from "@/components/portal/HlsPlayer";
 import SecurePdfViewer, { SecureEmbed } from "../Attent/SecurePdfViewer";
 
 /* ------------------------------------------------------------------ */
@@ -149,8 +151,8 @@ export const mistakeAnswers = (mistake) => {
   const isGrid = Boolean(mistake.answerType) && !/mcq/i.test(mistake.answerType);
   const options = Array.isArray(mistake.options) ? mistake.options : [];
   const studentOpt = options.find((o) => o.id && o.id === mistake.studentSelectedOptionId);
-  // isCorrect is not sent — match the correct answer by its text.
-  const correctOpt = !isGrid && mistake.correctOption ? options.find((o) => o.answer && o.answer === mistake.correctOption) : null;
+  // the quiz result API marks the right option (isCorrect); the reports only send its text
+  const correctOpt = isGrid ? null : options.find((o) => o.isCorrect === true) || (mistake.correctOption ? options.find((o) => o.answer && o.answer === mistake.correctOption) : null);
   const yours = isGrid
     ? mistake.studentGridInAnswer || "—"
     : (studentOpt && optionLetter(studentOpt.order)) || cleanHtmlText(mistake.studentOption) || "—";
@@ -160,9 +162,12 @@ export const mistakeAnswers = (mistake) => {
   return { isGrid, options, correctOpt, yours, correct };
 };
 
+/** Playable video of one solution: the server's { type, streamUrl | url }, or an older plain link. */
+export const solutionVideo = (ans) => (ans?.video && (ans.video.streamUrl || ans.video.url) ? ans.video : isUrl(ans?.answerVideo) ? ans.answerVideo : null);
+
 const solutionsOf = (mistake) =>
   (Array.isArray(mistake.answers) ? mistake.answers : []).filter(
-    (a) => a.answerText || a.answerImage || a.answerPdf || isUrl(a.answerVideo),
+    (a) => a.answerText || a.answerImage || a.answerPdf || solutionVideo(a),
   );
 
 /** Question text, image and the options (picked one red, right one green). */
@@ -227,10 +232,10 @@ export const MistakeSolution = ({ mistake, index, onOpenPdf, onOpenVideo }) => {
                   className="max-h-72 rounded-lg border border-slate-200 bg-white object-contain"
                 />
               )}
-              {(isUrl(ans.answerVideo) || ans.answerPdf) && (
+              {(solutionVideo(ans) || ans.answerPdf) && (
                 <div className="flex flex-wrap gap-2">
-                  {isUrl(ans.answerVideo) && (
-                    <button type="button" className="pl-btn" onClick={() => onOpenVideo(ans.answerVideo, `Question ${index} — video solution`)}>
+                  {solutionVideo(ans) && (
+                    <button type="button" className="pl-btn" onClick={() => onOpenVideo(solutionVideo(ans), `Question ${index} — video solution`)}>
                       <Icon name="video" size={14} /> Video
                     </button>
                   )}
@@ -314,22 +319,62 @@ export const PdfModal = ({ modal, onClose }) => {
   );
 };
 
+/** YouTube / Vimeo / Google Drive page links → their embeddable player URL (null for anything else). */
+export const toVideoEmbed = (url) => {
+  if (typeof url !== "string") return null;
+  let m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/);
+  if (m) return `https://www.youtube.com/embed/${m[1]}?rel=0`;
+  m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (m) return `https://player.vimeo.com/video/${m[1]}`;
+  m = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([\w-]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  return null;
+};
+
 export const VideoModal = ({ modal, onClose }) => {
   useEscape(Boolean(modal), onClose);
   if (!modal) return null;
+  // modal.url is either a link or the server's video object { type: "bunny", streamUrl } | { type: "external", url }
+  const v = modal.url;
+  const stream = v && typeof v === "object" ? v.streamUrl : null;
+  const link = v && typeof v === "object" ? v.url : v;
+  const embed = !stream && toVideoEmbed(link);
   return (
     <div className="pv-bg" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <ViewerBar kind="Video" title={modal.title} onClose={onClose} />
       <div className="flex-1 min-h-0 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-        <video
-          controls
-          autoPlay
-          controlsList="nodownload"
-          onContextMenu={(e) => e.preventDefault()}
-          className="max-h-full w-full max-w-5xl rounded-lg bg-black"
-          src={modal.url}
-        />
+        {stream ? (
+          <div className="w-full max-w-5xl aspect-video bg-black rounded-lg overflow-hidden"><HlsPlayer key={stream} src={stream} title={modal.title} /></div>
+        ) : embed ? (
+          <div className="w-full max-w-5xl aspect-video bg-black rounded-lg overflow-hidden">
+            <iframe src={embed} title={modal.title} className="w-full h-full border-0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+          </div>
+        ) : (
+          <video
+            controls
+            autoPlay
+            controlsList="nodownload"
+            onContextMenu={(e) => e.preventDefault()}
+            className="max-h-full w-full max-w-5xl rounded-lg bg-black"
+            src={link}
+          />
+        )}
       </div>
+    </div>
+  );
+};
+
+/** Shown instead of the mistakes when the student hasn't bought a package with answers. */
+export const MistakesLocked = ({ count }) => {
+  const navigate = useNavigate();
+  return (
+    <div className="rounded-xl border border-dashed border-red-200 bg-red-50/40 p-4 flex flex-wrap items-center gap-3">
+      <span className="w-10 h-10 rounded-xl bg-white text-one flex items-center justify-center shrink-0"><Icon name="lock" size={18} /></span>
+      <div className="flex-1 min-w-[12rem]">
+        <p className="font-bold text-slate-900">{count ? `You made ${count} mistake${count === 1 ? "" : "s"}` : "Your mistakes"}</p>
+        <p className="text-xs text-slate-500">Buy a package with answers to see each mistake with the solution photo and the video explanation.</p>
+      </div>
+      <button type="button" className="pl-btn primary" onClick={() => navigate("/user/payment")}>Buy mistakes</button>
     </div>
   );
 };

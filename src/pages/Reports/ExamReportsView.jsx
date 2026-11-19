@@ -10,6 +10,7 @@ import {
   Legend,
   MistakeQuestion,
   MistakeSolution,
+  MistakesLocked,
   PdfModal,
   RecCard,
   RecSection,
@@ -92,8 +93,8 @@ const TONE_TEXT = { green: "text-green-700", amber: "text-amber-700", red: "text
 
 const STATUS = {
   attend: { label: "Done", color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
-  waiting: { label: "Pending", color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
-  absent: { label: "Missed", color: "#64748b", bg: "#f1f5f9", border: "#e2e8f0" },
+  waiting: { label: "In progress", color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
+  absent: { label: "Not taken", color: "#64748b", bg: "#f1f5f9", border: "#e2e8f0" },
 };
 
 const StatusPill = ({ status }) => {
@@ -133,8 +134,8 @@ const ScoreCell = ({ r }) => {
 const STATUS_FILTERS = [
   ["all", "All statuses"],
   ["attend", "Done"],
-  ["waiting", "Pending"],
-  ["absent", "Missed"],
+  ["waiting", "In progress"],
+  ["absent", "Not taken"],
 ];
 
 const ExamReportsView = ({ kind = "exam" }) => {
@@ -142,6 +143,8 @@ const ExamReportsView = ({ kind = "exam" }) => {
   const isDiag = kind === "diagnostic";
   const navigate = useNavigate();
   const { data: response, loading, error, refetch } = useGet(cfg.endpoint);
+  // false → the student hasn't bought mistakes (a package with answers); the count and lessons to review still show
+  const mistakesUnlocked = response?.data?.mistakesUnlocked !== false;
 
   const [course, setCourse] = useState("all");
   const [status, setStatus] = useState("all");
@@ -272,6 +275,8 @@ const ExamReportsView = ({ kind = "exam" }) => {
         <RecordDetail
           r={openRecord}
           cfg={cfg}
+          mistakesUnlocked={mistakesUnlocked}
+          onTake={() => navigate(isDiag ? "/user/diagnostic" : "/user/exams")}
           onBack={() => setOpenId(null)}
           onOpenLesson={openLesson}
           onOpenPdf={(url, title) => setPdfModal({ url, title })}
@@ -291,7 +296,7 @@ const ExamReportsView = ({ kind = "exam" }) => {
     body = (
       <>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-          <Kpi label={isDiag ? "Trials taken" : "Exams taken"} value={`${stats.done}/${stats.total}`} sub={`${stats.missed} missed · ${stats.pending} pending`} />
+          <Kpi label={isDiag ? "Trials taken" : "Exams taken"} value={`${stats.done}/${stats.total}`} sub={`${stats.missed} not taken · ${stats.pending} in progress`} />
           <Kpi
             label="Best result"
             value={stats.best ? `${pctOf(stats.best)}%` : "—"}
@@ -388,6 +393,7 @@ const ExamReportsView = ({ kind = "exam" }) => {
                             <button type="button" onClick={() => setOpenId(r.id)} className="text-left font-semibold text-slate-900 hover:text-one">
                               {r.name}
                             </button>
+                            {r.assigned && <span className="ms-2 text-[10px] font-bold text-one bg-red-50 border border-red-100 rounded px-1.5 py-0.5">Assigned to you</span>}
                             <p className="text-xs text-slate-400">
                               {[r.courseName, validDate(r.date) ? fmtLong(r.date) : "Not taken", r.duration ? `${r.duration} min` : "", qs ? `${qs} questions` : ""]
                                 .filter(Boolean)
@@ -413,7 +419,7 @@ const ExamReportsView = ({ kind = "exam" }) => {
                             {done ? (
                               <ScoreCell r={r} />
                             ) : (
-                              <span className="text-xs text-slate-400">{r.status === "waiting" ? "Waiting for result" : "—"}</span>
+                              <span className="text-xs text-slate-400">{r.status === "waiting" ? "Not submitted yet" : "—"}</span>
                             )}
                           </td>
                           <td>
@@ -497,7 +503,7 @@ const ExamReportsView = ({ kind = "exam" }) => {
 /* One exam / diagnostic: result, where the points went, every mistake */
 /* ------------------------------------------------------------------ */
 
-const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) => {
+const RecordDetail = ({ r, cfg, mistakesUnlocked, onTake, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) => {
   const done = isDone(r);
   const pct = pctOf(r);
   const passPct = passPctOf(r);
@@ -506,7 +512,7 @@ const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) 
   const wrong = mistakesOf(r);
 
   const resultText =
-    r.status === "absent" ? "Missed" : r.status === "waiting" ? "Waiting for result" : isPassed(r) ? "Passed" : "Below pass mark";
+    r.status === "absent" ? "Not taken yet" : r.status === "waiting" ? "In progress" : isPassed(r) ? "Passed" : "Below pass mark";
 
   // "Where you lost points": mistakes per lesson.
   const byLesson = useMemo(() => {
@@ -558,13 +564,18 @@ const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) 
               {[validDate(r.date) ? `Taken ${fmtLong(r.date)}` : "Not taken", r.duration ? `${r.duration} min allowed` : ""].filter(Boolean).join(" · ")}
             </p>
           </div>
-          {r.mistakes.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
+            {!done && r.isActive !== false && (
+              <button type="button" className="pl-btn primary" onClick={onTake}>
+                {r.status === "waiting" ? "Continue" : `Take this ${cfg.noun.toLowerCase()}`}
+              </button>
+            )}
+            {r.mistakes.length > 0 && (
               <button type="button" className="pl-btn" onClick={exportMistakes}>
                 Export CSV
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {byLesson.length > 0 && (
@@ -609,6 +620,9 @@ const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) 
         </RecSection>
       )}
 
+      {done && !mistakesUnlocked && wrong > 0 ? (
+        <MistakesLocked count={wrong} />
+      ) : (
       <section className="rp-card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="rp-table">
@@ -654,8 +668,8 @@ const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) 
                   <td colSpan={5} className="text-center text-slate-400 py-10">
                     {!done
                       ? r.status === "absent"
-                        ? `You missed this ${cfg.noun.toLowerCase()}.`
-                        : "Your result is not ready yet."
+                        ? `You haven't taken this ${cfg.noun.toLowerCase()} yet.`
+                        : "You started this but haven't submitted it yet."
                       : `No mistakes in this ${cfg.noun.toLowerCase()} — full marks.`}
                   </td>
                 </tr>
@@ -664,6 +678,7 @@ const RecordDetail = ({ r, cfg, onBack, onOpenLesson, onOpenPdf, onOpenVideo }) 
           </table>
         </div>
       </section>
+      )}
     </>
   );
 };
