@@ -1178,7 +1178,7 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
           </div>
 
           {/* Section + Timer */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-end gap-2 md:shrink-0">
             {examMode === "exam" && currentSection && (
               <>
                 <span className="hidden sm:inline text-xs font-bold text-gray-500">
@@ -1203,6 +1203,16 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
                   {submitLabel}
                 </button>
               </>
+            )}
+            {examMode !== "exam" && (
+              // submit from anywhere — no need to reach the last question (unanswered ones are confirmed first)
+              <button
+                onClick={() => (isQuiz ? submitQuiz() : handleSubmit())}
+                disabled={userLoading}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition whitespace-nowrap"
+              >
+                {userLoading ? "Submitting…" : isQuiz ? "Submit quiz" : "Submit exam"}
+              </button>
             )}
             {isQuiz && (
               <span className="hidden sm:inline text-xs font-bold text-gray-500 max-w-[240px] truncate" title={quizMeta?.title}>

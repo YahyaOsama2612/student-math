@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { ResultImage, InlineVideo, solutionVideo } from "@/pages/Reports/parts";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import api from "@/api/api";
 import useGet from "@/hooks/useGet";
@@ -1022,11 +1023,7 @@ const ExamReportPreview = ({
                             </span>
                           </div>
                           {question.image ? (
-                            <img
-                              src={question.image}
-                              alt={`Question ${question.number}`}
-                              className="h-28 w-full rounded-xl border border-slate-200 object-contain p-2"
-                            />
+                            <ResultImage src={question.image} alt={`Question ${question.number}`} maxH="max-h-48" />
                           ) : (
                             <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
                               {question.questionText}
@@ -1080,11 +1077,7 @@ const ExamReportPreview = ({
                             </span>
                           </div>
                           {question.image ? (
-                            <img
-                              src={question.image}
-                              alt={`Question ${question.number}`}
-                              className="mb-3 h-28 w-full rounded-xl border border-slate-200 object-contain p-2"
-                            />
+                            <ResultImage src={question.image} alt={`Question ${question.number}`} maxH="max-h-48" className="mb-3" />
                           ) : (
                             question.questionText && (
                               <p className="mb-3 rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
@@ -1780,15 +1773,15 @@ const ExamResultReview = ({ result, examId, recommendedLessonsToStudy = [] }) =>
                     e.answerText ||
                     e.answerImage ||
                     e.answerPdf ||
-                    isUrl(e.answerVideo),
+                    solutionVideo(e),
                 );
 
                 return (
                   <div
                     key={m.id}
-                    className="rounded-2xl border border-red-100 bg-red-50/40 p-5 shadow-sm"
+                    className="rounded-2xl border border-red-100 bg-red-50/40 p-3 sm:p-5 shadow-sm"
                   >
-                    <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <span
                         className="rounded-lg border border-red-100 bg-white px-3 py-1 text-sm font-bold"
                         style={{ color: BRAND }}
@@ -1801,11 +1794,7 @@ const ExamResultReview = ({ result, examId, recommendedLessonsToStudy = [] }) =>
                     </div>
 
                     {m.image && (
-                      <img
-                        src={m.image}
-                        alt={`Question ${index + 1}`}
-                        className="mb-4 w-full max-w-2xl rounded-xl border border-slate-200 bg-white"
-                      />
+                      <ResultImage src={m.image} alt={`Question ${index + 1}`} className="mb-4" />
                     )}
                     {stripHtml(m.question) && (
                       <p className="mb-4 text-slate-700">
@@ -1892,24 +1881,15 @@ const ExamResultReview = ({ result, examId, recommendedLessonsToStudy = [] }) =>
                                 <p className="text-xs font-bold uppercase text-gray-400">
                                   Explanation by Image
                                 </p>
-                                <img
-                                  src={expl.answerImage}
-                                  className="w-full max-w-xs rounded border"
-                                  alt="Explanation"
-                                />
+                                <ResultImage src={expl.answerImage} alt="Explanation" maxH="max-h-[480px]" />
                               </div>
                             )}
-                            {isUrl(expl.answerVideo) && (
+                            {solutionVideo(expl) && (
                               <div className="mb-4">
-                                <p className="text-xs font-bold uppercase text-gray-400">
+                                <p className="text-xs font-bold uppercase text-gray-400 mb-1">
                                   Explanation by Video
                                 </p>
-                                <video controls className="w-full rounded">
-                                  <source
-                                    src={expl.answerVideo}
-                                    type="video/mp4"
-                                  />
-                                </video>
+                                <InlineVideo value={solutionVideo(expl)} title={`Question ${index + 1} — video solution`} />
                               </div>
                             )}
                             {expl.answerPdf && (

@@ -178,14 +178,7 @@ export const MistakeQuestion = ({ mistake, index }) => {
   return (
     <>
       {questionText && <p className="text-sm text-slate-800 mb-1">{questionText}</p>}
-      {mistake.questionImage && (
-        <img
-          src={mistake.questionImage}
-          alt={`Question ${index}`}
-          onContextMenu={(e) => e.preventDefault()}
-          className="my-2 max-h-64 w-full rounded-lg border border-slate-200 bg-white object-contain p-1"
-        />
-      )}
+      {mistake.questionImage && <ResultImage src={mistake.questionImage} alt={`Question ${index}`} className="my-2" />}
       {showOptions && (
         <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {options.map((opt, i) => {
@@ -224,14 +217,7 @@ export const MistakeSolution = ({ mistake, index, onOpenPdf, onOpenVideo }) => {
           {answers.map((ans, i) => (
             <div key={ans.id || i} className="space-y-2">
               {ans.answerText && <p className="whitespace-pre-wrap text-xs text-slate-700">{cleanHtmlText(ans.answerText)}</p>}
-              {ans.answerImage && (
-                <img
-                  src={ans.answerImage}
-                  alt={`Question ${index} solution`}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="max-h-72 rounded-lg border border-slate-200 bg-white object-contain"
-                />
-              )}
+              {ans.answerImage && <ResultImage src={ans.answerImage} alt={`Question ${index} solution`} maxH="max-h-[480px]" />}
               {(solutionVideo(ans) || ans.answerPdf) && (
                 <div className="flex flex-wrap gap-2">
                   {solutionVideo(ans) && (
@@ -259,7 +245,7 @@ export const MistakeItem = ({ mistake, index, onOpenPdf, onOpenVideo }) => {
   const { isGrid, yours, correct } = mistakeAnswers(mistake);
   return (
     <div className="rounded-xl border border-slate-200 p-3">
-      <div className="flex items-center justify-between gap-2 text-xs font-bold mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold mb-1">
         <span className="flex items-center gap-2">
           <span className="text-one">Question {index}</span>
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{isGrid ? "Grid-in" : "MCQ"}</span>
@@ -375,6 +361,53 @@ export const MistakesLocked = ({ count }) => {
         <p className="text-xs text-slate-500">Buy a package with answers to see each mistake with the solution photo and the video explanation.</p>
       </div>
       <button type="button" className="pl-btn primary" onClick={() => navigate("/user/payment")}>Buy mistakes</button>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Pictures and videos inside results (exam, quiz, diagnostic)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Question / solution picture: shown at its real size (never stretched beyond it), capped in height,
+ * centred, and opened full screen on tap — readable on phones and wide screens alike.
+ */
+export const ResultImage = ({ src, alt = "", maxH = "max-h-[420px]", className = "" }) => {
+  const [zoom, setZoom] = useState(false);
+  useEscape(zoom, () => setZoom(false));
+  if (!src) return null;
+  return (
+    <>
+      <button type="button" onClick={() => setZoom(true)} title="Tap to enlarge"
+        className={`block w-fit max-w-full mx-auto rounded-xl border border-slate-200 bg-white p-1.5 cursor-zoom-in ${className}`}>
+        <img src={src} alt={alt} onContextMenu={(e) => e.preventDefault()} className={`block h-auto w-auto max-w-full ${maxH} object-contain`} />
+      </button>
+      {zoom && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-3 sm:p-6 cursor-zoom-out" onClick={() => setZoom(false)}>
+          <img src={src} alt={alt} onContextMenu={(e) => e.preventDefault()} className="max-w-full max-h-full object-contain rounded-lg bg-white" />
+          <button type="button" className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/15 text-white text-lg" aria-label="Close">✕</button>
+        </div>
+      )}
+    </>
+  );
+};
+
+/** A solution video played in place: Bunny stream, YouTube / Vimeo / Drive link, or a plain file. */
+export const InlineVideo = ({ value, title = "Video solution" }) => {
+  const stream = value && typeof value === "object" ? value.streamUrl : null;
+  const link = value && typeof value === "object" ? value.url : value;
+  if (!stream && !link) return null;
+  const embed = !stream && toVideoEmbed(link);
+  return (
+    <div className="w-full max-w-3xl aspect-video bg-black rounded-xl overflow-hidden">
+      {stream ? (
+        <HlsPlayer key={stream} src={stream} title={title} />
+      ) : embed ? (
+        <iframe src={embed} title={title} className="w-full h-full border-0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+      ) : (
+        <video controls controlsList="nodownload" onContextMenu={(e) => e.preventDefault()} className="w-full h-full" src={link} />
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { ResultImage } from "@/pages/Reports/parts";
 import {
   Bar,
   BarChart,
@@ -769,11 +770,7 @@ const ReportPreview = ({
                             </span>
                           </div>
                           {question.image ? (
-                            <img
-                              src={question.image}
-                              alt={`Question ${question.number}`}
-                              className="h-28 w-full rounded-xl border border-slate-200 object-contain p-2"
-                            />
+                            <ResultImage src={question.image} alt={`Question ${question.number}`} maxH="max-h-48" />
                           ) : (
                             <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
                               {stripHtml(question.questionText)}
