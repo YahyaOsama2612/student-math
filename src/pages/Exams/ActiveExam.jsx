@@ -483,8 +483,9 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
   const [timeLeft, setTimeLeft] = useState(isQuiz ? null : diagnosticDuration * 60 || 60 * 60);
   useEffect(() => {
     if (!isQuiz || !quizMeta || quizSeconds === 0) return;
-    const startedAt = quizAttempt?.status === "in_progress" && quizAttempt?.startedAt ? new Date(quizAttempt.startedAt).getTime() : Date.now();
-    setTimeLeft(Math.max(0, Math.round(quizSeconds - (Date.now() - startedAt) / 1000)));
+    // the server works out the time left (its clock, not the browser’s); full length until the attempt exists
+    const left = quizAttempt?.status === "in_progress" && typeof quizAttempt.secondsLeft === "number" ? quizAttempt.secondsLeft : quizSeconds;
+    setTimeLeft(Math.max(0, Math.min(quizSeconds, left)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isQuiz, quizMeta, quizAttempt]);
   const [isImageZoomed, setIsImageZoomed] = useState(false);

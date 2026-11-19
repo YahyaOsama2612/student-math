@@ -421,16 +421,16 @@ const QuizModal = ({ quiz, mistakesUnlocked, onClose, onOpenLesson, onOpenPdf, o
       actions={
         <>
           <button type="button" className="pl-btn" onClick={onClose}>Close</button>
-          {quiz.attemptId && done && (
-            <button type="button" className="pl-btn" onClick={() => navigate(`/user/quiz-result/${quiz.attemptId}`)}>Full result</button>
-          )}
           {quiz.isActive !== false && !passed && (
-            <button type="button" className="pl-btn primary" disabled={startingId === quiz.quizId} onClick={() => start({ id: quiz.quizId })}>
+            <button type="button" className={`pl-btn${done ? "" : " primary"}`} disabled={startingId === quiz.quizId} onClick={() => start({ id: quiz.quizId })}>
               {startingId === quiz.quizId ? "Starting…" : done ? "Retake quiz" : "Take quiz"}
             </button>
           )}
+          {quiz.attemptId && done && (
+            <button type="button" className="pl-btn primary" onClick={() => navigate(`/user/quiz-result/${quiz.attemptId}`)}>See my answers</button>
+          )}
           {quiz.lesson?.id && (
-            <button type="button" className="pl-btn primary" onClick={() => onOpenLesson(quiz.lesson.id)}>
+            <button type="button" className="pl-btn" onClick={() => onOpenLesson(quiz.lesson.id)}>
               <Icon name="book" size={15} /> Study the lesson
             </button>
           )}
