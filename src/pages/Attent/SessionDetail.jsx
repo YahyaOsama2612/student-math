@@ -95,6 +95,8 @@ export default function SessionDetail() {
   (session.materials || []).forEach((m) => { if (m.session_pdf && m.session_pdf !== session.session_pdf) pdfs.push({ title: m.name, meta: "Lesson material", url: m.session_pdf }); });
   if (session.materialLink) pdfs.push({ title: "Class material", meta: "Shared link", url: session.materialLink });
   const ideas = (session.lessons || []).flatMap((l) => (l.ideas || []).map((i) => ({ ...i, lessonName: l.name })));
+  // attended, but the lesson access (content days) ran out
+  const accessExpired = (session.lessons || []).some((l) => l.accessExpired);
 
   const startQuiz = async (q) => {
     setStarting(q.id);
@@ -147,6 +149,19 @@ export default function SessionDetail() {
         </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {attended && session.recordingLink && (
+            <section className="lg:col-span-2 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:p-5 flex flex-wrap items-center gap-4">
+              <span className="w-12 h-12 rounded-2xl bg-white text-blue-600 flex items-center justify-center shrink-0"><Icon name="video" size={22} /></span>
+              <div className="flex-1 min-w-[12rem]">
+                <p className="font-extrabold text-slate-900">Class recording</p>
+                <p className="text-sm text-slate-500">Watch your live session again — recorded by your teacher.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="pl-btn primary" onClick={() => setViewing({ kind: "video", title: `${session.name} — recording`, video: { type: "external", url: session.recordingLink } })}>▶ Watch</button>
+                <a className="pl-btn" href={session.recordingLink} target="_blank" rel="noopener noreferrer">Open in Drive</a>
+              </div>
+            </section>
+          )}
           <Box title="Uploaded by your teacher">
             {pdfs.length ? pdfs.map((d) => (
               <Row key={d.url} icon="pdf" tone="brand" title={d.title} meta={d.meta}><button className="pl-btn" onClick={() => setViewing({ kind: "pdf", ...d })}>Preview</button></Row>
@@ -155,7 +170,7 @@ export default function SessionDetail() {
           <Box title="Videos">
             {ideas.filter((i) => i.video).length ? ideas.filter((i) => i.video).map((i) => (
               <Row key={i.id} icon="video" tone="blue" title={i.idea} meta={i.lessonName}><button className="pl-btn" onClick={() => setViewing({ kind: "video", title: i.idea, video: i.video })}>▶ Watch</button></Row>
-            )) : <p className="text-sm text-slate-400">{session.lessons?.some((l) => l.ideasLocked) ? "Videos open after you attend." : "No videos for this session."}</p>}
+            )) : <p className="text-sm text-slate-400">{accessExpired ? "Your access to this lesson’s videos has ended. Attend a session of this lesson again to open them, or ask the admin." : session.lessons?.some((l) => l.ideasLocked) ? "Videos open after you attend." : "No videos for this session."}</p>}
           </Box>
           <Box title="Lesson ideas">
             {ideas.filter((i) => i.pdf).length ? ideas.filter((i) => i.pdf).map((i) => (
@@ -168,7 +183,7 @@ export default function SessionDetail() {
                 <button className="pl-btn primary" onClick={() => startQuiz(q)} disabled={starting === q.id}>{starting === q.id ? "Starting…" : "Start quiz"}</button>
               </Row>
             )) : <p className="text-sm text-slate-400">No quizzes for this lesson.</p>}
-            {lesson && <button className="pl-btn self-start" onClick={() => navigate(`/user/lesson/${lesson.id}`, { state: { fromPurchases: true } })}>Open the lesson →</button>}
+            {lesson && <button className="pl-btn self-start" onClick={() => navigate(`/user/lesson/${lesson.id}`)}>Open the lesson →</button>}
           </Box>
         </div>
       )}

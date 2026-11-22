@@ -26,6 +26,7 @@ const SLOTS_PILL = {
   none: ["NOT SENT YET", "bg-slate-100 text-slate-600"],
   pending_admin_review: ["WAITING FOR ADMIN APPROVAL", "bg-amber-100 text-amber-700"],
   pending_student_response: ["APPROVED BY ADMIN", "bg-green-100 text-green-700"],
+  plan_proposed: ["PLAN READY — YOUR ANSWER", "bg-amber-100 text-amber-700"],
   accepted: ["APPROVED BY ADMIN", "bg-green-100 text-green-700"],
   rejected: ["CHANGES REQUESTED", "bg-red-100 text-red-600"],
   cancelled: ["CANCELLED", "bg-slate-100 text-slate-600"],
@@ -35,6 +36,7 @@ const SLOTS_PILL = {
 const filterKeyOf = (plan) =>
   ({
     pending_student_response: "awaiting",
+    plan_proposed: "awaiting",
     rejected: "changes",
     accepted: "active",
   })[plan.status] || "waiting";
@@ -49,7 +51,7 @@ const ORDER = ["awaiting", "changes", "active", "waiting"];
 
 // A plan shows in the "Plan" tab once the admin has proposed something.
 const hasProposal = (plan) =>
-  ["pending_student_response", "accepted", "rejected"].includes(plan.status) ||
+  ["pending_student_response", "plan_proposed", "accepted", "rejected"].includes(plan.status) ||
   Number(plan.proposedSessionsCount) > 0 ||
   plan.proposedSessions?.length > 0 ||
   Boolean(plan.proposedAt);
@@ -168,17 +170,18 @@ const AvailabilityPlans = () => {
   };
 
   // Returns true on success so the card can reset its "ask for changes" form.
-  const respondToPlan = async (planId, action, feedbackText = "") => {
+  // rejectedSessionIds: sessions declined one by one (the rest are accepted)
+  const respondToPlan = async (planId, action, feedbackText = "", rejectedSessionIds = []) => {
     setResponding(true);
     try {
-      await api.post(`${PLANS_URL}/${planId}/respond`, {
+      const res = await api.post(`${PLANS_URL}/${planId}/respond`, {
         action,
-        feedback: feedbackText.trim(),
+        feedback: (feedbackText || "").trim(),
+        ...(action === "accept" && rejectedSessionIds.length ? { rejectedSessionIds } : {}),
       });
       toast.success(
-        action === "accept"
-          ? "Plan approved — your sessions move to Upcoming."
-          : "Sent back to the admin with your reason.",
+        res?.data?.data?.message ||
+          (action === "accept" ? "Accepted — your sessions move to Upcoming." : "Declined — the admin will offer new times."),
       );
       // Keep the sidebar badge and Upcoming list in step with the answer.
       reloadCounts?.();

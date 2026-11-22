@@ -45,7 +45,7 @@ export function StudentDataProvider({ children }) {
     }).catch(() => {}),
     api.get("/api/user/availability-plans?page=1&limit=50").then((r) => {
       const items = body(r)?.items || [];
-      setPlansWaiting(items.filter((p) => p.status === "pending_student_response").length);
+      setPlansWaiting(items.filter((p) => p.status === "pending_student_response" || p.status === "plan_proposed").length);
     }).catch(() => {}),
   ]), []);
 

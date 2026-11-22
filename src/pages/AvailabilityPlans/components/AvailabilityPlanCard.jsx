@@ -56,6 +56,7 @@ export const formatDay = (value) =>
 export const PLAN_STATUS = {
   pending_admin_review: ["Waiting for admin", "#1d4ed8", "#eff6ff", "#bfdbfe"],
   pending_student_response: ["Awaiting your approval", "#b45309", "#fffbeb", "#fde68a"],
+  plan_proposed: ["Awaiting your approval", "#b45309", "#fffbeb", "#fde68a"],
   accepted: ["Active", "#15803d", "#f0fdf4", "#bbf7d0"],
   rejected: ["Changes requested", "#b91c1c", "#fef2f2", "#fecaca"],
   cancelled: ["Cancelled", "#475569", "#f1f5f9", "#e2e8f0"],
@@ -77,14 +78,10 @@ export const StatusPill = ({ status }) => {
 };
 
 // The student can answer once the admin has proposed sessions.
+// The student answers only while the admin's proposal is waiting (plan_proposed). After a decline the
+// plan goes back to the admin ("pending_admin_review") until new times are offered.
 export const canRespondTo = (plan) =>
-  Boolean(plan) &&
-  !/accepted|rejected|cancelled/i.test(plan.status || "") &&
-  Boolean(
-    plan.proposedAt ||
-      plan.proposedSessions?.length > 0 ||
-      /student.*response|response.*student|proposed/i.test(plan.status || ""),
-  );
+  Boolean(plan) && /proposed|student.*response/i.test(plan.status || "");
 
 // The backend refuses edits to accepted or cancelled plans.
 export const canEditPlan = (plan) =>
@@ -254,6 +251,7 @@ export const sessionsRange = (sessions = []) => {
 // Per-session answer saved by the backend (studentResponse), else the plan's.
 const sessionState = (session, status) => {
   if (session.studentResponse === "rejected") return "skipped";
+  if (session.studentResponse === "pending") return "pending";
   if (session.studentResponse === "accepted" || status === "accepted") return "scheduled";
   if (status === "rejected") return "declined";
   return "pending";
@@ -270,14 +268,15 @@ const StateCell = ({ state }) => {
     return (
       <span className="flex items-center justify-end">
         <span className="rv-state no">
-          <Icon name="x" size={13} /> {state === "skipped" ? "Skipped" : "Declined"}
+          <Icon name="x" size={13} /> {state === "skipped" ? "Declined" : "Declined"}
         </span>
       </span>
     );
-  return <span className="text-xs text-slate-400 text-right">Pending</span>;
+  return <span className="text-xs text-slate-400 text-right">Waiting for your answer</span>;
 };
 
-export const SessionsTable = ({ sessions = [], status, limit = 4 }) => {
+// choices / onChoose: while answering, each waiting session has Accept / Decline.
+export const SessionsTable = ({ sessions = [], status, limit = 4, choices = null, onChoose }) => {
   const [open, setOpen] = useState(false);
   const shown = open || !limit ? sessions : sessions.slice(0, limit);
 
@@ -334,7 +333,23 @@ export const SessionsTable = ({ sessions = [], status, limit = 4 }) => {
                   <span className="text-xs text-slate-400">Teacher TBA</span>
                 )}
               </span>
-              <StateCell state={state} />
+              {choices && session.studentResponse === "pending" ? (
+                <span className="flex items-center justify-end gap-1.5" role="group" aria-label="Your answer">
+                  {[["accept", "Accept", "check"], ["decline", "Decline", "x"]].map(([k, label, icon]) => {
+                    const on = (choices[session.sessionId] || "accept") === k;
+                    return (
+                      <button key={k} type="button" aria-pressed={on} onClick={() => onChoose(session.sessionId, k)}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold transition-colors ${
+                          on ? (k === "accept" ? "bg-green-600 border-green-600 text-white" : "bg-red-600 border-red-600 text-white")
+                             : "bg-white border-slate-200 text-slate-500 hover:border-slate-400"}`}>
+                        <Icon name={icon} size={12} /> {label}
+                      </button>
+                    );
+                  })}
+                </span>
+              ) : (
+                <StateCell state={state} />
+              )}
             </div>
           );
         })}
@@ -370,6 +385,8 @@ const AvailabilityPlanCard = ({
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
+  // sessionId → "accept" | "decline" for the sessions waiting for an answer (default: accept)
+  const [choices, setChoices] = useState({});
   // List items carry only a session count; the sessions are loaded on demand
   // from GET /availability-plans/:id when the student opens them here.
   const [loadedSessions, setLoadedSessions] = useState(null);
@@ -403,14 +420,24 @@ const AvailabilityPlanCard = ({
     }
   };
 
-  const approve = () => onRespond(plan.id, "accept", "");
+  const waiting = sessions.filter((s) => s.studentResponse === "pending");
+  const declinedIds = waiting.filter((s) => choices[s.sessionId] === "decline").map((s) => s.sessionId);
+  const choose = (sessionId, value) => setChoices((c) => ({ ...c, [sessionId]: value }));
+
+  // Accept everything still waiting
+  const approve = () => onRespond(plan.id, "accept", "", []);
+  // Accept the rest, decline the ones marked "Decline" (they go back to the admin)
+  const sendAnswers = async () => {
+    const ok = await onRespond(plan.id, "accept", reason, declinedIds);
+    if (ok) { setChoices({}); setReason(""); }
+  };
 
   const sendChanges = async () => {
     if (!reason.trim()) {
       setReasonError("Write a reason first.");
       return;
     }
-    const ok = await onRespond(plan.id, "reject", reason);
+    const ok = await onRespond(plan.id, "reject", reason, []);
     if (ok) {
       setDenying(false);
       setReason("");
@@ -451,7 +478,8 @@ const AvailabilityPlanCard = ({
     plan.adminNotes ||
     plan.status === "rejected" ||
     plan.status === "cancelled" ||
-    (variant === "slots" && plan.status === "pending_admin_review");
+    (variant === "slots" && plan.status === "pending_admin_review") ||
+    (variant === "plan" && plan.status === "pending_admin_review" && sessions.some((x) => x.studentResponse === "rejected"));
 
   return (
     <section className="pl-card">
@@ -469,15 +497,22 @@ const AvailabilityPlanCard = ({
 
         <div className="flex flex-wrap gap-2 shrink-0">
           {canAnswerHere && !denying && (
-            <>
-              <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={approve}>
+            declinedIds.length === 0 ? (
+              <>
+                <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={approve}>
+                  <Icon name="check" size={16} />
+                  {responding ? "Saving…" : waiting.length > 1 ? `Accept all ${waiting.length}` : "Accept"}
+                </button>
+                <button type="button" className="btn-deny disabled:opacity-60" disabled={responding} onClick={() => setDenying(true)}>
+                  Decline all
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={sendAnswers}>
                 <Icon name="check" size={16} />
-                {responding ? "Saving…" : "Approve plan"}
+                {responding ? "Saving…" : `Send my answers (${waiting.length - declinedIds.length} accepted · ${declinedIds.length} declined)`}
               </button>
-              <button type="button" className="btn-deny disabled:opacity-60" disabled={responding} onClick={() => setDenying(true)}>
-                Ask for changes
-              </button>
-            </>
+            )
           )}
           {!canAnswerHere && respondable && variant === "plan" && onOpen && (
             <button type="button" className="pl-btn primary" onClick={() => onOpen(plan.id)}>
@@ -520,6 +555,17 @@ const AvailabilityPlanCard = ({
         </div>
       )}
 
+      {canAnswerHere && !denying && declinedIds.length > 0 && (
+        <div className="px-5 md:px-6 pb-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 mb-2">
+            The {declinedIds.length} declined session{declinedIds.length === 1 ? "" : "s"} go back to the admin, who will offer new times.
+            The accepted ones move to your Upcoming sessions.
+          </div>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} className="input w-full"
+            placeholder="Optional: tell the admin what times suit you better" />
+        </div>
+      )}
+
       {denying && (
         <div className="px-5 md:px-6 pb-4">
           <div className="flex flex-col sm:flex-row gap-2 items-stretch">
@@ -531,12 +577,12 @@ const AvailabilityPlanCard = ({
                 setReasonError("");
               }}
               onKeyDown={(event) => event.key === "Enter" && !responding && sendChanges()}
-              placeholder="What should the admin change? e.g. no Saturday mornings"
+              placeholder="Why decline all? e.g. no Saturday mornings — the admin will offer new times"
               className="input flex-1"
             />
             <div className="flex gap-2">
               <button type="button" className="pl-btn danger disabled:opacity-60" disabled={responding} onClick={sendChanges}>
-                {responding ? "Sending…" : "Send to admin"}
+                {responding ? "Sending…" : "Decline all & send to admin"}
               </button>
               <button type="button" className="pl-btn disabled:opacity-60" disabled={responding} onClick={cancelDeny}>
                 Cancel
@@ -554,6 +600,12 @@ const AvailabilityPlanCard = ({
               Sent to the admin
               {plan.createdAt ? ` on ${formatShortDate(plan.createdAt)}` : ""}. You will get your study plan
               as soon as they review these times.
+            </div>
+          )}
+          {variant === "plan" && plan.status === "pending_admin_review" && sessions.some((x) => x.studentResponse === "rejected") && (
+            <div className="pl-alert info">
+              <b>Back with the admin.</b> You declined {sessions.filter((x) => x.studentResponse === "rejected").length} session(s) — new times are on the way.
+              {sessions.some((x) => x.studentResponse === "accepted") && " The sessions you accepted are already booked."}
             </div>
           )}
           {plan.adminNotes && (
@@ -582,7 +634,8 @@ const AvailabilityPlanCard = ({
           <SlotsGrid slots={slots} />
         </div>
       ) : sessions.length ? (
-        <SessionsTable sessions={sessions} status={plan.status} limit={sessionsLimit} />
+        <SessionsTable sessions={sessions} status={plan.status} limit={canAnswerHere ? 0 : sessionsLimit}
+          choices={canAnswerHere ? choices : null} onChoose={choose} />
       ) : sessionsCount ? (
         <>
           <button type="button" onClick={loadSessions} disabled={loadingSessions} className="pl-more">

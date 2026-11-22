@@ -29,7 +29,9 @@ const getErrorMessage = (error) =>
   "Could not load the available times.";
 
 // Shape sent to the plan API (dayOfWeek / timeFrom / timeTo).
+// slotId links the choice to the admin's time slot (only those can be picked)
 const buildSlotPayload = (slot) => ({
+  ...(slot.id ? { slotId: slot.id } : {}),
   dayOfWeek: slot.dayOfWeek,
   timeFrom: `${toHM(slot.timeFrom)}:00`,
   timeTo: `${toHM(slot.timeTo)}:00`,
