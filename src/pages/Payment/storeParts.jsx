@@ -192,6 +192,29 @@ export function PayMethods({ methods, selected, onSelect, group = "pay" }) {
   );
 }
 
+/** Paying from the wallet balance (a checkout choice of its own, above the payment methods). */
+export const WALLET_METHOD = { id: "wallet", name: "Wallet", type: "Wallet" };
+
+export function WalletOption({ balance, price, selected, onSelect, onTopUp, group = "pay" }) {
+  const on = selected?.id === WALLET_METHOD.id;
+  const enough = Number(balance) >= Number(price);
+  return (
+    <label className={`pay-opt mb-3 ${on ? "active" : ""} ${enough ? "" : "opacity-60 cursor-not-allowed"}`}>
+      <input type="radio" name={group} className="accent-[#7d0a0a]" checked={on} disabled={!enough} onChange={() => onSelect(WALLET_METHOD)} />
+      <span className="w-9 h-9 rounded-lg bg-[#FDF6F6] text-[#7d0a0a] flex items-center justify-center shrink-0"><Icon name="wallet" size={18} /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-extrabold text-sm text-gray-900">My wallet</span>
+        <span className="block text-xs text-slate-400">
+          Balance {money(balance)}{enough ? " · paid instantly" : ` · not enough for ${money(price)}`}
+        </span>
+      </span>
+      {!enough && onTopUp && (
+        <button type="button" className="text-xs font-bold text-[#7d0a0a] hover:underline shrink-0 self-center" onClick={(e) => { e.preventDefault(); onTopUp(); }}>Top up</button>
+      )}
+    </label>
+  );
+}
+
 /** Payment screenshot picker (design: proof upload). `value` is the base64 image. */
 export function ReceiptUpload({ value, fileName, methodName, onPick, onRemove }) {
   return value ? (

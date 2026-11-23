@@ -83,11 +83,11 @@ export function StudentDataProvider({ children }) {
       unread: notifications.filter((n) => !n.isRead).length,
       nextSession: visibleUpcoming.find((s) => !s.cancelled) || null,
       cancelRequestFor, ratingFor, requestCancel, markNotificationsRead,
-      refresh, reloadSessions: loadSessions, reloadRatings: loadRatings, reloadCounts: loadCounts,
+      refresh, reloadProfile: loadProfile, reloadSessions: loadSessions, reloadRatings: loadRatings, reloadCounts: loadCounts,
       toast, showToast,
     };
   }, [profile, upcoming, history, cancelRequests, ratings, homework, plansWaiting, notifications, cancelRequestFor, ratingFor,
-    requestCancel, markNotificationsRead, refresh, loadSessions, loadRatings, loadCounts, toast, showToast]);
+    requestCancel, markNotificationsRead, refresh, loadProfile, loadSessions, loadRatings, loadCounts, toast, showToast]);
 
   return <StudentDataContext.Provider value={value}>{children}</StudentDataContext.Provider>;
 }

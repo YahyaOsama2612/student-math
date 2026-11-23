@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import { toast } from "react-hot-toast";
 import usePost from "../../hooks/usePost";
 import Icon from "@/components/portal/Icon";
+import { useStudentData } from "@/context/StudentData";
 import { EmptyCard, Page, PageHead } from "@/components/portal/ui";
-import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, money } from "@/pages/Payment/storeParts";
+import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, WALLET_METHOD as WALLET, WalletOption, money } from "@/pages/Payment/storeParts";
 
 /* Checkout (MathPortal design: renderCheckout) for the courses / chapters / lessons picked in the Store.
    Receives the selection in location.state and posts it to /api/user/enrollment/enroll. */
@@ -26,6 +27,10 @@ const Enrollment = () => {
   const [base64Image, setBase64Image] = useState(null);
   const [imageName, setImageName] = useState("");
   const [placed, setPlaced] = useState(false);
+  const { profile, reloadProfile } = useStudentData();
+  const balance = Number(profile?.wallet?.balance ?? 0);
+  // read the balance fresh when checkout opens
+  useEffect(() => { reloadProfile?.(); }, [reloadProfile]);
 
   // ---- Promo code ----
   const [promoCode, setPromoCode] = useState("");
@@ -115,15 +120,16 @@ const Enrollment = () => {
         }))
         .filter((item) => item.id && item.priceId) || [];
 
-    // 3. payload
-    const payload = {
-      paymentType: selectedMethod.type.toLowerCase() === "automatic" ? "wallet" : "manual",
-      [apiKey]: formattedItems,
-    };
-
-    if (selectedMethod.id) {
-      payload.paymentMethodId = selectedMethod.id;
+    // 3. payload — wallet: taken from the balance now; automatic (Paymob): pay on the payment page;
+    //    manual: transfer + screenshot, the admin approves
+    const isWallet = selectedMethod.id === WALLET.id;
+    const isAutomatic = selectedMethod.type === "Automatic";
+    if (isWallet && balance < discountedPrice) {
+      return toast.error(`Your wallet has ${money(balance)} — top it up or pick another method`);
     }
+    const payload = { [apiKey]: formattedItems };
+    if (!isAutomatic) payload.paymentType = isWallet ? "wallet" : "manual";
+    if (!isWallet) payload.paymentMethodId = selectedMethod.id;
 
     if (selectedMethod.type === "Manual") {
       payload.image = base64Image;
@@ -134,7 +140,11 @@ const Enrollment = () => {
     }
 
     try {
-      const res = await postData(payload, null, "Enrollment request submitted successfully!");
+      const res = await postData(
+        payload,
+        isAutomatic ? "/api/user/enrollment/enroll/automatic" : null,
+        isWallet ? "Paid from your wallet" : isAutomatic ? "Opening the payment page…" : "Enrollment request submitted successfully!",
+      );
 
       const redirectUrl = res?.checkoutUrl || res?.paymentUrl || res?.data?.checkoutUrl || res?.data?.paymentUrl;
 
@@ -143,10 +153,11 @@ const Enrollment = () => {
         return;
       }
 
+      if (isWallet) reloadProfile?.();
       setPlaced(true);
       setTimeout(() => {
-        navigate("/user/home");
-      }, 1500);
+        navigate(isWallet ? "/user/wallet" : "/user/home");
+      }, isWallet ? 2500 : 1500);
     } catch (err) {
       console.error("Enrollment Error:", err.message);
     }
@@ -169,15 +180,20 @@ const Enrollment = () => {
   const count = items ? items.length : 1;
 
   if (placed) {
+    const paidNow = selectedMethod?.id === WALLET.id;
     return (
       <Page>
         <div className="max-w-2xl mx-auto">
           <section className="card p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4"><Icon name="check" size={30} /></div>
-            <h2 className="text-2xl font-extrabold text-gray-900">Order placed</h2>
-            <p className="text-sm text-slate-500 mt-1">Your {selectedMethod?.name} request was sent. Your items unlock once the payment is confirmed.</p>
-            <p className="text-lg font-extrabold text-gray-900 mt-3">{money(discountedPrice)}</p>
-            <p className="text-xs text-slate-400 mt-4">Taking you home…</p>
+            <div className={`w-16 h-16 rounded-full ${paidNow ? "bg-green-50 text-green-600" : "bg-amber-50 text-amber-600"} flex items-center justify-center mx-auto mb-4`}><Icon name="check" size={30} /></div>
+            <h2 className="text-2xl font-extrabold text-gray-900">{paidNow ? "Paid — your items are unlocked" : "Order placed"}</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              {paidNow
+                ? <>{money(discountedPrice)} was taken from your wallet. New balance: <b>{money(balance)}</b>.</>
+                : <>Your {selectedMethod?.name} request was sent. Your items unlock once the payment is confirmed.</>}
+            </p>
+            {!paidNow && <p className="text-lg font-extrabold text-gray-900 mt-3">{money(discountedPrice)}</p>}
+            <p className="text-xs text-slate-400 mt-4">{paidNow ? "Taking you to your wallet…" : "Taking you home…"}</p>
           </section>
         </div>
       </Page>
@@ -219,6 +235,9 @@ const Enrollment = () => {
             {/* 2. Payment method */}
             <section className="card p-6">
               <h3 className="font-extrabold text-gray-900 mb-4">2. Payment method</h3>
+              {/* wallet first: it pays instantly from the balance */}
+              <WalletOption balance={balance} price={discountedPrice} selected={selectedMethod} onSelect={setSelectedMethod}
+                onTopUp={() => navigate("/user/wallet", { state: { openRecharge: true } })} group="enroll-pay" />
               {loading || (!data && !error) ? <div className="skel h-24"></div> : error ? <ErrorCard text="Could not load the payment methods." /> : (
                 <PayMethods methods={paymentMethods} selected={selectedMethod} onSelect={setSelectedMethod} group="enroll-pay" />
               )}
@@ -237,6 +256,11 @@ const Enrollment = () => {
                     onRemove={() => { setBase64Image(null); setImageName(""); }}
                   />
                 </div>
+              )}
+              {selectedMethod?.id === WALLET.id && (
+                <p className="text-xs text-slate-500 mt-4 bg-slate-50 rounded-xl p-3">
+                  {money(discountedPrice)} is taken from your wallet now and your items unlock right away. You'll have {money(Math.max(0, balance - discountedPrice))} left.
+                </p>
               )}
               {selectedMethod?.type === "Automatic" && (
                 <p className="text-xs text-slate-500 mt-4 bg-slate-50 rounded-xl p-3">

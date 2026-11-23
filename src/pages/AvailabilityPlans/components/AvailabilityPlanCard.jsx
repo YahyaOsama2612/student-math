@@ -257,23 +257,40 @@ const sessionState = (session, status) => {
   return "pending";
 };
 
-const StateCell = ({ state }) => {
+const StateChip = ({ state }) => {
   if (state === "scheduled")
-    return (
-      <span className="flex items-center justify-end">
-        <span className="rv-state ok"><Icon name="check" size={13} /> Scheduled</span>
-      </span>
-    );
+    return <span className="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-bold px-2.5 py-1"><Icon name="check" size={12} /> Booked</span>;
   if (state === "skipped" || state === "declined")
-    return (
-      <span className="flex items-center justify-end">
-        <span className="rv-state no">
-          <Icon name="x" size={13} /> {state === "skipped" ? "Declined" : "Declined"}
-        </span>
-      </span>
-    );
-  return <span className="text-xs text-slate-400 text-right">Waiting for your answer</span>;
+    return <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-2.5 py-1"><Icon name="x" size={12} /> Declined</span>;
+  return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-2.5 py-1">Waiting for you</span>;
 };
+
+/** Calendar tile: "WED / 28 / OCT" (UTC so the day never shifts). */
+const DateTile = ({ session, tone }) => {
+  const value = session.sessionDate || session.startDate;
+  if (!isValidDate(value)) return <span className="w-12 shrink-0" />;
+  const d = new Date(value);
+  const part = (o) => d.toLocaleDateString("en-US", { ...o, timeZone: "UTC" });
+  return (
+    <span className={`w-12 shrink-0 rounded-xl border text-center leading-none py-1.5 ${tone}`}>
+      <span className="block text-[10px] font-bold uppercase tracking-wide opacity-70">{part({ weekday: "short" })}</span>
+      <span className="block text-lg font-extrabold my-0.5">{part({ day: "numeric" })}</span>
+      <span className="block text-[10px] font-bold uppercase tracking-wide opacity-70">{part({ month: "short" })}</span>
+    </span>
+  );
+};
+
+/** Accept / Decline switch for one waiting session. */
+const AnswerSwitch = ({ value, onChange }) => (
+  <span className="inline-flex w-full sm:w-auto rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Your answer">
+    {[["accept", "Accept", "check", "bg-green-600 text-white shadow-sm"], ["decline", "Decline", "x", "bg-red-600 text-white shadow-sm"]].map(([k, label, icon, onCls]) => (
+      <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)}
+        className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${value === k ? onCls : "text-slate-500 hover:text-slate-800"}`}>
+        <Icon name={icon} size={12} /> {label}
+      </button>
+    ))}
+  </span>
+);
 
 // choices / onChoose: while answering, each waiting session has Accept / Decline.
 export const SessionsTable = ({ sessions = [], status, limit = 4, choices = null, onChoose }) => {
@@ -282,78 +299,44 @@ export const SessionsTable = ({ sessions = [], status, limit = 4, choices = null
 
   return (
     <>
-      <div className="pl-table">
-        <div className="pl-row pl-th">
-          <span>Date</span>
-          <span>Time</span>
-          <span>Session</span>
-          <span>Teacher</span>
-          <span className="text-right">Status</span>
-        </div>
+      <ul className="border-t border-slate-100 divide-y divide-slate-100">
         {shown.map((session, index) => {
           const state = sessionState(session, status);
-          const meta = [
-            session.sessionRelationalType && typeOf(session.sessionRelationalType).label,
-            session.scheduleType &&
-              (session.scheduleType === "once" ? "One-time" : formatPlanStatus(session.scheduleType)),
-            session.planSessionNotes,
-          ]
-            .filter(Boolean)
-            .join(" · ");
+          const answering = choices && session.studentResponse === "pending";
+          const choice = answering ? choices[session.sessionId] || "accept" : null;
+          const declined = choice === "decline" || state === "skipped" || state === "declined";
+          const group = /^group session/i.test(session.planSessionNotes || "");
+          const recurring = session.scheduleType && session.scheduleType !== "once";
+          const tone = declined ? "border-red-200 bg-red-50 text-red-700" : state === "scheduled" ? "border-green-200 bg-green-50 text-green-800" : "border-slate-200 bg-white text-slate-900";
 
           return (
-            <div
-              key={session.planSessionId || session.sessionId || session.id || index}
-              className={`pl-row${state === "skipped" ? " is-denied" : ""}`}
-            >
-              <span className="font-semibold text-slate-900 whitespace-nowrap">
-                {sessionDateText(session) || "—"}
-              </span>
-              <span className="text-slate-500 whitespace-nowrap">{sessionTimeText(session) || "—"}</span>
-              <span className="min-w-0">
-                <span className="block font-semibold text-slate-900 truncate">
-                  {sessionTitle(session, index)}
-                </span>
-                {meta && (
-                  <span className="block text-xs text-slate-500 truncate">
-                    <TypeDot type={session.sessionRelationalType} />
-                    {meta}
-                  </span>
-                )}
-              </span>
-              <span className="flex items-center gap-2 min-w-0">
-                {session.teacherName ? (
-                  <>
-                    <TeacherAvatar name={session.teacherName} />
-                    <span className="block text-sm font-medium text-slate-800 truncate">
-                      {session.teacherName}
+            <li key={session.planSessionId || session.sessionId || session.id || index}
+              className={`flex flex-col sm:flex-row sm:items-center gap-3 px-5 md:px-6 py-3.5 transition-colors ${declined ? "bg-red-50/40" : "hover:bg-slate-50/60"}`}>
+              <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                <DateTile session={session} tone={tone} />
+                <div className="min-w-0 flex-1">
+                  <p className={`font-semibold text-slate-900 truncate ${declined ? "line-through decoration-red-300" : ""}`}>{sessionTitle(session, index)}</p>
+                  <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex items-center gap-1 font-semibold text-slate-700 whitespace-nowrap">
+                      <Icon name="clock" size={12} /> {sessionTimeText(session) || "—"}
                     </span>
-                  </>
-                ) : (
-                  <span className="text-xs text-slate-400">Teacher TBA</span>
-                )}
-              </span>
-              {choices && session.studentResponse === "pending" ? (
-                <span className="flex items-center justify-end gap-1.5" role="group" aria-label="Your answer">
-                  {[["accept", "Accept", "check"], ["decline", "Decline", "x"]].map(([k, label, icon]) => {
-                    const on = (choices[session.sessionId] || "accept") === k;
-                    return (
-                      <button key={k} type="button" aria-pressed={on} onClick={() => onChoose(session.sessionId, k)}
-                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold transition-colors ${
-                          on ? (k === "accept" ? "bg-green-600 border-green-600 text-white" : "bg-red-600 border-red-600 text-white")
-                             : "bg-white border-slate-200 text-slate-500 hover:border-slate-400"}`}>
-                        <Icon name={icon} size={12} /> {label}
-                      </button>
-                    );
-                  })}
-                </span>
-              ) : (
-                <StateCell state={state} />
-              )}
-            </div>
+                    {session.sessionRelationalType && (
+                      <span className="inline-flex items-center whitespace-nowrap"><TypeDot type={session.sessionRelationalType} />{typeOf(session.sessionRelationalType).label}</span>
+                    )}
+                    {session.teacherName && <span className="whitespace-nowrap">with {session.teacherName}</span>}
+                    {recurring && <span className="whitespace-nowrap">{sessionDateText(session)} · {formatPlanStatus(session.scheduleType)}</span>}
+                    {group && <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 text-[11px] whitespace-nowrap">Group</span>}
+                  </p>
+                  {session.planSessionNotes && !group && <p className="text-xs text-slate-400 mt-1 truncate">{session.planSessionNotes}</p>}
+                </div>
+              </div>
+              <div className="sm:shrink-0 pl-[62px] sm:pl-0">
+                {answering ? <AnswerSwitch value={choice} onChange={(k) => onChoose(session.sessionId, k)} /> : <StateChip state={state} />}
+              </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {limit > 0 && sessions.length > limit && (
         <button type="button" onClick={() => setOpen((value) => !value)} className="pl-more">
@@ -495,22 +478,22 @@ const AvailabilityPlanCard = ({
           <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
         </div>
 
-        <div className="flex flex-wrap gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:shrink-0">
           {canAnswerHere && !denying && (
             declinedIds.length === 0 ? (
               <>
-                <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={approve}>
+                <button type="button" className="btn-approve flex-1 sm:flex-none justify-center whitespace-nowrap disabled:opacity-60" disabled={responding} onClick={approve}>
                   <Icon name="check" size={16} />
                   {responding ? "Saving…" : waiting.length > 1 ? `Accept all ${waiting.length}` : "Accept"}
                 </button>
-                <button type="button" className="btn-deny disabled:opacity-60" disabled={responding} onClick={() => setDenying(true)}>
+                <button type="button" className="btn-deny flex-1 sm:flex-none justify-center whitespace-nowrap disabled:opacity-60" disabled={responding} onClick={() => setDenying(true)}>
                   Decline all
                 </button>
               </>
             ) : (
-              <button type="button" className="btn-approve disabled:opacity-60" disabled={responding} onClick={sendAnswers}>
+              <button type="button" className="btn-approve w-full sm:w-auto justify-center flex-wrap text-center disabled:opacity-60" disabled={responding} onClick={sendAnswers}>
                 <Icon name="check" size={16} />
-                {responding ? "Saving…" : `Send my answers (${waiting.length - declinedIds.length} accepted · ${declinedIds.length} declined)`}
+                {responding ? "Saving…" : <>Send my answers <span className="text-xs font-semibold opacity-90">({waiting.length - declinedIds.length} accepted · {declinedIds.length} declined)</span></>}
               </button>
             )
           )}

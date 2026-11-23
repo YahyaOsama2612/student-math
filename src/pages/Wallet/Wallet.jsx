@@ -19,7 +19,9 @@ const TxnPill = ({ status }) => {
 const Wallet = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile } = useStudentData();
+  const { profile, reloadProfile } = useStudentData();
+  // the balance changes after purchases / recharges — read it fresh every time the page opens
+  useEffect(() => { reloadProfile?.(); }, [reloadProfile]);
   const { data: transData, loading: transLoading, error: transError, refetch } = useGet("/api/user/wallet/transactions?page=1&limit=20");
   const [isModalOpen, setIsModalOpen] = useState(!!location.state?.openRecharge);
   const [status, setStatus] = useState("all");

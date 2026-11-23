@@ -5,7 +5,8 @@ import usePost from "@/hooks/usePost";
 import { toast } from "react-hot-toast";
 import Icon from "@/components/portal/Icon";
 import { Modal, Page, PageHead } from "@/components/portal/ui";
-import { CourseCatalog, ErrorCard, PayMethods, PromoBox, ReceiptUpload, SkelGrid, money } from "./storeParts";
+import { CourseCatalog, ErrorCard, PayMethods, PromoBox, ReceiptUpload, SkelGrid, WALLET_METHOD, WalletOption, money } from "./storeParts";
+import { useStudentData } from "@/context/StudentData";
 
 /* Store (MathPortal design): Courses catalog with plan picker + cart → /user/enrollment,
    packages (live sessions / exams / questions) bought in a checkout dialog, and order history. */
@@ -68,6 +69,8 @@ const Payment = () => {
   );
 
   const { postData, loading: posting } = usePost();
+  const { profile, reloadProfile } = useStudentData();
+  const walletBalance = Number(profile?.wallet?.balance ?? 0);
   const { postData: validatePromo, loading: validatingPromo } = usePost("/api/user/promo-codes/validate");
 
   const courses = coursesData?.data?.courses || [];
@@ -105,6 +108,7 @@ const Payment = () => {
     setIncludeAnswersAddon(addon);
     resetPromoState();
     setIsModalOpen(true);
+    reloadProfile?.(); // fresh wallet balance for the checkout
   };
 
   const closeCheckout = () => {
@@ -126,6 +130,26 @@ const Payment = () => {
   const handlePurchasePackage = async (e) => {
     e?.preventDefault?.();
     if (!selectedMethod) return toast.error("Please select a payment method");
+
+    // wallet: paid now from the balance, the package is added right away
+    if (selectedMethod.id === WALLET_METHOD.id) {
+      if (walletBalance < discountedPackagePrice) return toast.error(`Your wallet has ${money(walletBalance)} — top it up or pick another method`);
+      try {
+        await postData({
+          packageId: selectedPackage.id,
+          ...(includeAnswersAddon && { buyAnswersAddon: true }),
+          ...(appliedPromo?.code && { promoCode: appliedPromo.code }),
+        }, "/api/user/payment/package-buy/wallet", `Paid ${money(discountedPackagePrice)} from your wallet — ${selectedPackage.name} is in your account`);
+        closeCheckout();
+        setSelectedPackage(null);
+        setSelectedMethod(null);
+        reloadProfile?.();
+        refetchPackHistory();
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
 
     const isAutomatic = selectedMethod.type === "Automatic";
     const endpoint = isAutomatic ? "/api/user/payment/package-buy/automatic" : "/api/user/payment/package-buy";
@@ -514,7 +538,9 @@ const Payment = () => {
             <button className="pl-btn primary" onClick={handlePurchasePackage} disabled={posting || !selectedMethod}>
               {posting
                 ? "Processing…"
-                : selectedMethod?.type === "Automatic"
+                : selectedMethod?.id === WALLET_METHOD.id
+                  ? `Pay from wallet · ${money(discountedPackagePrice)}`
+                  : selectedMethod?.type === "Automatic"
                   ? `Pay ${money(discountedPackagePrice)}`
                   : checkoutMode === "upgrade"
                     ? `Confirm upgrade · ${money(discountedPackagePrice)}`
@@ -542,8 +568,18 @@ const Payment = () => {
           </div>
 
           <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2">Payment method</p>
+          {/* the wallet pays new packages; the answers upgrade keeps the transfer / online methods */}
+          {checkoutMode === "buy" && (
+            <WalletOption balance={walletBalance} price={discountedPackagePrice} selected={selectedMethod} onSelect={setSelectedMethod}
+              onTopUp={() => navigate("/user/wallet", { state: { openRecharge: true } })} group="pkg-pay" />
+          )}
           {methodsLoading || (!methodsData && !methodsError) ? <div className="skel h-20 mb-4"></div> : (
             <div className="mb-4"><PayMethods methods={paymentMethods} selected={selectedMethod} onSelect={setSelectedMethod} group="pkg-pay" /></div>
+          )}
+          {selectedMethod?.id === WALLET_METHOD.id && (
+            <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3 mb-4">
+              {money(discountedPackagePrice)} is taken from your wallet now and the package is added to your account right away. You'll have {money(Math.max(0, walletBalance - discountedPackagePrice))} left.
+            </p>
           )}
 
           {selectedMethod?.type === "Manual" && (
