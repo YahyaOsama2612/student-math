@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
 import api from "../api/api";
 import { StudentDataProvider, useStudentData } from "../context/StudentData";
+import RequiredRating from "../components/RequiredRating";
 import { initials, relDay, fmtTime, timeAgo } from "../lib/portal";
 import Icon from "../components/portal/Icon";
 
@@ -348,6 +349,7 @@ function Shell() {
       {portalToast && (
         <div className="fixed bottom-20 lg:bottom-5 right-5 z-[99] toast-msg" role="status" aria-live="polite">{portalToast}</div>
       )}
+      <RequiredRating />
       <Toaster position="top-center" reverseOrder={false} />
     </div>
   );

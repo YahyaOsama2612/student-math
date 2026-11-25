@@ -4,11 +4,18 @@ import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import Loading from "../../components/Loading";
 
+// The backend rejects a rating without a real comment (MIN_COMMENT in controllers/user/SessionRating.ts).
+const MIN_COMMENT = 10;
+
+/** required = shown after a session the student attended: no close / cancel until it is rated. */
 const SessionRatingModal = ({
   sessionId,
   sessionName,
+  subtitle,
   onClose,
   onRatingSuccess,
+  required = false,
+  onUnavailable,
 }) => {
   // State for form inputs
   const [generalComment, setGeneralComment] = useState("");
@@ -19,10 +26,17 @@ const SessionRatingModal = ({
   const [error, setError] = useState(null);
 
   // API hooks
-  const { data: formData, loading: formLoading } = useGet(
+  const { data: formData, loading: formLoading, error: formError } = useGet(
     `/api/user/session-ratings/${sessionId}/form`,
   );
   const { postData } = usePost();
+
+  // Required mode must never trap the student: if this session's form can't load or has no
+  // questions to answer, hand it back so the next one (or nothing) is shown.
+  const noQuestions = formData && Array.isArray(formData?.data?.data?.questions) && formData.data.data.questions.length === 0;
+  useEffect(() => {
+    if (required && (formError || noQuestions)) onUnavailable?.();
+  }, [required, formError, noQuestions, onUnavailable]);
 
 
   // Initialize ratings with questions from API
@@ -31,8 +45,6 @@ const SessionRatingModal = ({
       const apiQuestions = formData.data.data.questions;
       const existingRating = formData.data.data.existingRating;
 
-      console.log("Questions loaded:", apiQuestions);
-      console.log("Existing Rating:", existingRating);
 
       // Store questions
       setQuestions(apiQuestions);
@@ -99,9 +111,14 @@ const SessionRatingModal = ({
         setIsSubmitting(false);
         return;
       }
+      if (generalComment.trim().length < MIN_COMMENT) {
+        setError(`Please write a comment about the session (at least ${MIN_COMMENT} characters)`);
+        setIsSubmitting(false);
+        return;
+      }
 
       const payload = {
-        generalComment: generalComment || null,
+        generalComment: generalComment.trim(),
         ratings: questionRatings.map((item) => ({
           questionId: item.questionId,
           rating: item.rating,
@@ -109,7 +126,6 @@ const SessionRatingModal = ({
         })),
       };
 
-      console.log("Submitting payload:", payload);
 
       await postData(payload, `/api/user/session-ratings/${sessionId}`);
 
@@ -121,7 +137,7 @@ const SessionRatingModal = ({
       }, 2000);
     } catch (err) {
       console.error("Submit error:", err);
-      setError(err.message || "Failed to save rating");
+      setError(err?.response?.data?.message || err?.response?.data?.error?.message || err.message || "Failed to save rating");
       setSubmitStatus("error");
     } finally {
       setIsSubmitting(false);
@@ -146,17 +162,26 @@ const SessionRatingModal = ({
         {/* Header */}
         <div className="px-6 md:px-8 py-6 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Rate Session</h2>
+            <h2 className="text-2xl font-bold text-slate-900">{required ? "Rate your last session" : "Rate Session"}</h2>
             <p className="text-sm text-slate-500 mt-1">{sessionName}</p>
+            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
-          <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="p-2 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
-          >
-            <X size={24} />
-          </button>
+          {!required && (
+            <button
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="p-2 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
+              aria-label="Close"
+            >
+              <X size={24} />
+            </button>
+          )}
         </div>
+        {required && (
+          <div className="px-6 md:px-8 py-3 bg-amber-50 border-b border-amber-100 text-sm text-amber-800">
+            Please rate this session and write a short comment to continue — your teacher and MathPortal read every rating.
+          </div>
+        )}
 
         {/* Success Message */}
         {submitStatus === "success" && (
@@ -305,30 +330,38 @@ const SessionRatingModal = ({
           {/* General Comment */}
           {questions.length > 0 && (
             <div className="border-t pt-6">
-              <label className="block text-sm font-bold text-slate-800 mb-2">
-                General comment (optional)
+              <label htmlFor="rating-comment" className="block text-sm font-bold text-slate-800 mb-2">
+                Your comment <span className="text-red-600">*</span>
               </label>
               <textarea
+                id="rating-comment"
                 value={generalComment}
                 onChange={(e) => setGeneralComment(e.target.value)}
-                placeholder="Share your overall feedback about the session..."
+                placeholder="What went well? What could be better?"
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent resize-none"
                 style={{ "--tw-ring-color": "#7d0a0a" }}
                 rows={3}
+                required
+                aria-required="true"
               />
+              <p className={`text-xs mt-1 ${generalComment.trim().length >= MIN_COMMENT ? "text-emerald-600" : "text-slate-400"}`}>
+                {generalComment.trim().length >= MIN_COMMENT ? "✓ Thanks for the comment" : `Required — at least ${MIN_COMMENT} characters (${generalComment.trim().length}/${MIN_COMMENT})`}
+              </p>
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="px-6 md:px-8 py-4 border-t border-slate-100 flex gap-3 bg-slate-50 rounded-b-3xl">
-          <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
+          {!required && (
+            <button
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleSubmitRating}
             disabled={
