@@ -5,7 +5,8 @@ import usePost from "@/hooks/usePost";
 import { toast } from "react-hot-toast";
 import Icon from "@/components/portal/Icon";
 import { Modal, Page, PageHead } from "@/components/portal/ui";
-import { CourseCatalog, ErrorCard, PayMethods, PromoBox, ReceiptUpload, SkelGrid, WALLET_METHOD, WalletOption, money } from "./storeParts";
+import { CourseCatalog, ErrorCard, PayMethods, PromoBox, ReceiptUpload, SkelGrid, WALLET_METHOD, WalletOption, money, egp } from "./storeParts";
+import { useCurrency } from "@/context/CurrencyContext";
 import { useStudentData } from "@/context/StudentData";
 
 /* Store (MathPortal design): Courses catalog with plan picker + cart → /user/enrollment,
@@ -33,6 +34,7 @@ const statusPill = (status) =>
       : <span className="pill bg-amber-100 text-amber-700">AWAITING APPROVAL</span>;
 
 const Payment = () => {
+  const { code } = useCurrency(); // currency the prices are shown in
   const navigate = useNavigate();
   const [activeMainTab, setActiveMainTab] = useState("courses"); // courses | packages | history
   const [historySubTab, setHistorySubTab] = useState("pending-courses"); // pending-courses | completed-courses | rejected-courses | packages-history
@@ -133,13 +135,13 @@ const Payment = () => {
 
     // wallet: paid now from the balance, the package is added right away
     if (selectedMethod.id === WALLET_METHOD.id) {
-      if (walletBalance < discountedPackagePrice) return toast.error(`Your wallet has ${money(walletBalance)} — top it up or pick another method`);
+      if (walletBalance < discountedPackagePrice) return toast.error(`Your wallet has ${egp(walletBalance)} — top it up or pick another method`);
       try {
         await postData({
           packageId: selectedPackage.id,
           ...(includeAnswersAddon && { buyAnswersAddon: true }),
           ...(appliedPromo?.code && { promoCode: appliedPromo.code }),
-        }, "/api/user/payment/package-buy/wallet", `Paid ${money(discountedPackagePrice)} from your wallet — ${selectedPackage.name} is in your account`);
+        }, "/api/user/payment/package-buy/wallet", `Paid ${egp(discountedPackagePrice)} from your wallet — ${selectedPackage.name} is in your account`);
         closeCheckout();
         setSelectedPackage(null);
         setSelectedMethod(null);
@@ -355,7 +357,7 @@ const Payment = () => {
       <div className="grid grid-cols-2 gap-3 text-sm border-t border-slate-100 pt-3">
         <div>
           <p className="text-[11px] font-bold text-slate-400 uppercase">Paid</p>
-          <p className="font-extrabold text-gray-900">{money(purchase.payment?.amount || 0)}</p>
+          <p className="font-extrabold text-gray-900">{egp(purchase.payment?.amount || 0)}</p>
           <p className="text-xs text-slate-500">via {purchase.payment?.method || "Unknown"}</p>
         </div>
         <div>
@@ -382,7 +384,7 @@ const Payment = () => {
   return (
     <Page wide>
       <div className={activeMainTab === "courses" && selectedCourses.length ? "pb-24" : ""}>
-        <PageHead title="Store" text="Courses, live sessions, exams and question packages. Prices are in EGP.">
+        <PageHead title="Store" text={`Courses, live sessions, exams and question packages. Prices in ${code}${code !== "EGP" ? " — payments are made in EGP" : ""}.`}>
           <button className="btn-ghost" onClick={() => navigate("/user/mypurchases")}><Icon name="purchases" size={16} /> My purchases</button>
         </PageHead>
 
@@ -485,7 +487,7 @@ const Payment = () => {
                         return (
                           <tr key={row.id}>
                             <td className="font-bold text-gray-900">{row.package?.name}</td>
-                            <td className="font-bold whitespace-nowrap">{money(row.amount)}</td>
+                            <td className="font-bold whitespace-nowrap">{egp(row.amount)}</td>
                             <td>{statusPill(row.status)}</td>
                             <td>{row.includedAnswers ? <span className="pill bg-blue-100 text-blue-700">INCLUDED</span> : <span className="pill bg-slate-100 text-slate-500">NONE</span>}</td>
                             <td className="text-slate-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
@@ -539,12 +541,12 @@ const Payment = () => {
               {posting
                 ? "Processing…"
                 : selectedMethod?.id === WALLET_METHOD.id
-                  ? `Pay from wallet · ${money(discountedPackagePrice)}`
+                  ? `Pay from wallet · ${egp(discountedPackagePrice)}`
                   : selectedMethod?.type === "Automatic"
-                  ? `Pay ${money(discountedPackagePrice)}`
+                  ? `Pay ${egp(discountedPackagePrice)}`
                   : checkoutMode === "upgrade"
-                    ? `Confirm upgrade · ${money(discountedPackagePrice)}`
-                    : `Place order · ${money(discountedPackagePrice)}`}
+                    ? `Confirm upgrade · ${egp(discountedPackagePrice)}`
+                    : `Place order · ${egp(discountedPackagePrice)}`}
             </button>
           </>}
         >
@@ -578,14 +580,14 @@ const Payment = () => {
           )}
           {selectedMethod?.id === WALLET_METHOD.id && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3 mb-4">
-              {money(discountedPackagePrice)} is taken from your wallet now and the package is added to your account right away. You'll have {money(Math.max(0, walletBalance - discountedPackagePrice))} left.
+              {egp(discountedPackagePrice)} is taken from your wallet now and the package is added to your account right away. You'll have {egp(Math.max(0, walletBalance - discountedPackagePrice))} left.
             </p>
           )}
 
           {selectedMethod?.type === "Manual" && (
             <div className="bg-slate-50 rounded-xl p-4 mb-4">
               <p className="text-sm text-slate-600 mb-3">
-                Transfer <b>{money(discountedPackagePrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot below.
+                Transfer <b>{egp(discountedPackagePrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot below.
                 {checkoutMode !== "upgrade" && includeAnswersAddon && <span className="block text-xs text-blue-700 font-semibold mt-1">Includes the answers review add-on (+{money(selectedPackage.answersPrice)})</span>}
               </p>
               <ReceiptUpload value={receiptImg} fileName={receiptName} methodName={selectedMethod.name} onPick={handleFileChange} onRemove={() => { setReceiptImg(""); setReceiptName(""); }} />
@@ -593,7 +595,7 @@ const Payment = () => {
           )}
           {selectedMethod?.type === "Automatic" && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3 mb-4">
-              Instant activation — you'll be redirected to a secure payment page to pay <b>{money(discountedPackagePrice)}</b>.
+              Instant activation — you'll be redirected to a secure payment page to pay <b>{egp(discountedPackagePrice)}</b>.
               {checkoutMode !== "upgrade" && includeAnswersAddon && <span className="block mt-1">Includes the answers review add-on (+{money(selectedPackage.answersPrice)}).</span>}
             </p>
           )}
@@ -619,6 +621,7 @@ const Payment = () => {
               <div className="flex justify-between"><span className="text-slate-500">Discount ({appliedPromo.code})</span><span className="font-bold text-green-700">− {money(basePackagePrice - discountedPackagePrice)}</span></div>
             )}
             <div className="flex justify-between items-baseline"><span className="font-extrabold text-gray-900">Total</span><span className="font-extrabold text-xl text-gray-900">{money(discountedPackagePrice)}</span></div>
+            {code !== "EGP" && <p className="text-right text-xs font-bold text-slate-500">You pay {egp(discountedPackagePrice)}</p>}
           </div>
         </Modal>
       )}

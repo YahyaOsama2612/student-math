@@ -1,7 +1,7 @@
 // Shared bits of the account screens (purchases, orders, wallet) in the MathPortal design.
 
-/** 1200 -> "1,200 EGP" */
-export const money = (n) => `${Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} EGP`;
+/** Prices in the student's currency (lib/currency.js); egp() for amounts actually paid. */
+export { money, egp } from "@/lib/currency";
 
 /** Date -> "Mar 4, 2026" (en-US); "—" when missing or invalid. */
 export const fmtDate = (v) => {

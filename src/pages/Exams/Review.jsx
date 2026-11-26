@@ -9,6 +9,7 @@ import Errorpage from "@/components/Errorpage";
 import ParallelQuestions from "./ParallelQuestions";
 import DiagnosticReviewDashboard from "@/components/DiagnosticReview/DiagnosticReviewDashboard";
 import { ShoppingCart, BarChart3, Lightbulb } from "lucide-react";
+import { money } from "@/lib/currency";
 import {
   ArrowRight,
   Check,
@@ -646,12 +647,7 @@ const formatReportDate = (value) =>
     year: "numeric",
   });
 
-const formatMoney = (value) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EGP",
-    maximumFractionDigits: 2,
-  }).format(Number(value) || 0);
+const formatMoney = (value) => money(value); // lesson prices in the student's currency
 
 // Recommendation recap — mirrors DiagnosticReviewDashboard's Recommendations
 // (grouped by chapter, per-lesson price, select all / clear all, sticky

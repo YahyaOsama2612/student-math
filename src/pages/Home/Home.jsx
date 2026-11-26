@@ -3,6 +3,7 @@ import { useStudentData } from "@/context/StudentData";
 import { relDay, fmtTime, typeOf } from "@/lib/portal";
 import Icon from "@/components/portal/Icon";
 import { LiveStrip } from "@/components/portal/ui";
+import { money } from "@/lib/currency";
 
 function Hero() {
   const { profile, upcoming, nextSession, homework, plansWaiting } = useStudentData();
@@ -47,7 +48,7 @@ function Hero() {
               : <button onClick={() => navigate("/user/availability-plans")} className="s-hero-btn solid">Share my free times →</button>}
             <button onClick={() => navigate("/user/reports/quizzes")} className="s-hero-btn ghost">My reports</button>
             <button onClick={() => navigate("/user/payment")} className="s-hero-btn ghost">Store</button>
-            <button onClick={() => navigate("/user/wallet")} className="s-hero-btn ghost"><Icon name="wallet" size={16} /> Wallet · {wallet.toLocaleString("en-US")} EGP</button>
+            <button onClick={() => navigate("/user/wallet")} className="s-hero-btn ghost"><Icon name="wallet" size={16} /> Wallet · {money(wallet)}</button>
           </div>
         </div>
         <div className="lg:col-span-2 grid grid-cols-2 gap-2.5">

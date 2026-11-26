@@ -3,6 +3,7 @@ import { toast } from "react-hot-toast";
 import useGet from "@/hooks/useGet";
 import usePost from "@/hooks/usePost";
 import { Modal } from "@/components/portal/ui";
+import { getCurrent, money } from "@/lib/currency";
 
 /* Wallet recharge dialog — used by the Wallet page and by Profile → "Add funds".
    Automatic method → POST /api/user/wallet/recharge/automatic, then go to the checkout link.
@@ -110,6 +111,9 @@ export default function RechargeModal({ onClose, onDone }) {
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">EGP</span>
       </div>
+      {Number(formData.amount) > 0 && getCurrent() !== "EGP" && (
+        <p className="-mt-3 mb-4 text-xs text-slate-500">≈ {money(formData.amount)} — wallet top-ups are paid in EGP</p>
+      )}
 
       {selectedMethod?.type === "Manual" && (
         <div>

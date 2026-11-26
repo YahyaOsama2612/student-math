@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import { useStudentData } from "@/context/StudentData";
 import { Kpi, Page, PageHead } from "@/components/portal/ui";
-import { ErrorCard, fmtDate, money } from "@/pages/Purchases/parts/shop";
+import { ErrorCard, fmtDate, money, egp } from "@/pages/Purchases/parts/shop";
 import RechargeModal from "./RechargeModal";
 
 /* Wallet — balance, activity table and the recharge dialog.
@@ -57,7 +57,7 @@ const Wallet = () => {
             <p className="text-sm text-white/75">Balance</p>
             {balance === undefined
               ? <div className="h-9 w-40 rounded-lg bg-white/20 mt-1"></div>
-              : <p className="text-3xl font-extrabold tabular-nums">{money(balance)}</p>}
+              : <><p className="text-3xl font-extrabold tabular-nums">{egp(balance)}</p>{money(balance) !== egp(balance) && <p className="text-xs opacity-80 mt-0.5">≈ {money(balance)}</p>}</>}
             <p className="text-xs text-white/70 mt-1">Use it to pay at checkout. Transfers are added after the admin checks your receipt.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -67,7 +67,7 @@ const Wallet = () => {
         </section>
         <Kpi
           label="Waiting for approval"
-          value={pending.length ? money(pendingSum) : "—"}
+          value={pending.length ? egp(pendingSum) : "—"}
           sub={pending.length ? `${pending.length} request${pending.length === 1 ? "" : "s"} in your latest activity` : "No top-ups waiting"}
           tone={pending.length ? "amber" : ""}
         />
@@ -100,7 +100,7 @@ const Wallet = () => {
                         <p className="font-semibold text-slate-800 capitalize">{t.source}</p>
                         <p className="text-xs text-slate-400 capitalize">{t.type}</p>
                       </td>
-                      <td className={`font-extrabold whitespace-nowrap ${out ? "text-red-600" : "text-green-700"}`}>{out ? "−" : "+"}{money(t.amount)}</td>
+                      <td className={`font-extrabold whitespace-nowrap ${out ? "text-red-600" : "text-green-700"}`}>{out ? "−" : "+"}{egp(t.amount)}</td>
                       <td>
                         <TxnPill status={t.paymentStatus} />
                         {t.paymentReason && <p className="text-xs text-red-600 mt-1 max-w-[220px]">{t.paymentReason}</p>}

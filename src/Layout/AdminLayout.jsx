@@ -4,6 +4,8 @@ import { Toaster, toast } from "react-hot-toast";
 import api from "../api/api";
 import { StudentDataProvider, useStudentData } from "../context/StudentData";
 import RequiredRating from "../components/RequiredRating";
+import { CurrencyProvider, useCurrency } from "../context/CurrencyContext";
+import { egp, money } from "../lib/currency";
 import { initials, relDay, fmtTime, timeAgo } from "../lib/portal";
 import Icon from "../components/portal/Icon";
 
@@ -135,7 +137,8 @@ function AccountMenu({ name, sub, onSwitchBack, impersonated }) {
             <p className="text-sm font-bold text-slate-900 truncate">{name}</p>
             {profile?.email && <p className="text-[11px] text-slate-400 truncate">{profile.email}</p>}
           </div>
-          <button role="menuitem" onClick={() => go("/user/wallet")}><Icon name="wallet" size={17} /> Wallet · <b>{wallet.toLocaleString("en-US")} EGP</b></button>
+          <button role="menuitem" onClick={() => go("/user/wallet")} title={egp(wallet)}><Icon name="wallet" size={17} /> Wallet · <b>{money(wallet)}</b></button>
+          <CurrencyPicker />
           <button role="menuitem" onClick={() => go("/user/mypurchases")}><Icon name="purchases" size={17} /> My purchases</button>
           <button role="menuitem" onClick={() => go("/user/reports/quizzes")}><Icon name="reports" size={17} /> My reports</button>
           <button role="menuitem" onClick={() => go("/user/availability-plans")}><Icon name="plans" size={17} /> Study plans</button>
@@ -355,9 +358,28 @@ function Shell() {
   );
 }
 
+/** Currency of the prices: automatic (from where the student is) or one admin set up. */
+function CurrencyPicker() {
+  const { code, list, pick, choose, detected } = useCurrency();
+  if (list.length < 2) return null;
+  return (
+    <label className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
+      <Icon name="store" size={17} />
+      <span className="flex-1">Prices in</span>
+      <select value={pick} onChange={(e) => choose(e.target.value)} className="text-sm font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1" aria-label="Currency for prices">
+        <option value="">Auto · {pick ? chooseLabel(list, detected) : code}</option>
+        {list.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+      </select>
+    </label>
+  );
+}
+const chooseLabel = (list, detected) => (detected?.currency && list.some((c) => c.code === detected.currency) ? detected.currency : "USD");
+
 const AdminLayout = () => (
   <StudentDataProvider>
-    <Shell />
+    <CurrencyProvider>
+      <Shell />
+    </CurrencyProvider>
   </StudentDataProvider>
 );
 

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import usePost from "@/hooks/usePost";
 import Icon from "@/components/portal/Icon";
 
-export const money = (n) => `${Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} EGP`;
+export { money } from "@/lib/currency";
 
 /** Material row (same look as the session page rows). `lead` replaces the icon tile. */
 export const MatRow = ({ icon, tone = "slate", lead, title, meta, children }) => (

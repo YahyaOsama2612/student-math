@@ -6,7 +6,8 @@ import usePost from "../../hooks/usePost";
 import Icon from "@/components/portal/Icon";
 import { useStudentData } from "@/context/StudentData";
 import { EmptyCard, Page, PageHead } from "@/components/portal/ui";
-import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, WALLET_METHOD as WALLET, WalletOption, money } from "@/pages/Payment/storeParts";
+import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, WALLET_METHOD as WALLET, WalletOption, money, egp, moneyBoth } from "@/pages/Payment/storeParts";
+import { useCurrency } from "@/context/CurrencyContext";
 
 /* Checkout (MathPortal design: renderCheckout) for the courses / chapters / lessons picked in the Store.
    Receives the selection in location.state and posts it to /api/user/enrollment/enroll. */
@@ -14,6 +15,7 @@ import { ErrorCard, KIND_LABEL, PayMethods, PromoBox, ReceiptUpload, WALLET_METH
 const KIND_OF_KEY = { courses: "course", chapters: "chapter", lessons: "lesson", packages: "package" };
 
 const Enrollment = () => {
+  const { code } = useCurrency(); // currency the prices are shown in
   const navigate = useNavigate();
   const { state } = useLocation();
 
@@ -125,7 +127,7 @@ const Enrollment = () => {
     const isWallet = selectedMethod.id === WALLET.id;
     const isAutomatic = selectedMethod.type === "Automatic";
     if (isWallet && balance < discountedPrice) {
-      return toast.error(`Your wallet has ${money(balance)} — top it up or pick another method`);
+      return toast.error(`Your wallet has ${egp(balance)} — top it up or pick another method`);
     }
     const payload = { [apiKey]: formattedItems };
     if (!isAutomatic) payload.paymentType = isWallet ? "wallet" : "manual";
@@ -189,10 +191,10 @@ const Enrollment = () => {
             <h2 className="text-2xl font-extrabold text-gray-900">{paidNow ? "Paid — your items are unlocked" : "Order placed"}</h2>
             <p className="text-sm text-slate-500 mt-1">
               {paidNow
-                ? <>{money(discountedPrice)} was taken from your wallet. New balance: <b>{money(balance)}</b>.</>
+                ? <>{egp(discountedPrice)} was taken from your wallet. New balance: <b>{egp(balance)}</b>.</>
                 : <>Your {selectedMethod?.name} request was sent. Your items unlock once the payment is confirmed.</>}
             </p>
-            {!paidNow && <p className="text-lg font-extrabold text-gray-900 mt-3">{money(discountedPrice)}</p>}
+            {!paidNow && <p className="text-lg font-extrabold text-gray-900 mt-3">{moneyBoth(discountedPrice)}</p>}
             <p className="text-xs text-slate-400 mt-4">{paidNow ? "Taking you to your wallet…" : "Taking you home…"}</p>
           </section>
         </div>
@@ -203,7 +205,7 @@ const Enrollment = () => {
   return (
     <Page wide>
       <div className="max-w-6xl mx-auto">
-        <PageHead title="Checkout" text="Prices are in EGP. Choose one of the payment methods MathPortal has enabled.">
+        <PageHead title="Checkout" text={`Prices in ${code}${code !== "EGP" ? " — payments are made in EGP" : ""}. Choose one of the payment methods MathPortal has enabled.`}>
           <button className="btn-ghost" onClick={() => navigate(-1)}>← Continue shopping</button>
         </PageHead>
 
@@ -245,7 +247,7 @@ const Enrollment = () => {
               {selectedMethod?.type === "Manual" && (
                 <div className="mt-4 bg-slate-50 rounded-xl p-4">
                   <p className="text-sm text-slate-600 mb-3">
-                    Send <b>{money(discountedPrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot of the transfer. The admin approves the payment and your items unlock.
+                    Send <b>{egp(discountedPrice)}</b> with <b>{selectedMethod.name}</b>, then upload the screenshot of the transfer. The admin approves the payment and your items unlock.
                   </p>
                   <p className="text-xs font-bold text-slate-500 mb-1">Payment screenshot <span className="text-red-500">*</span></p>
                   <ReceiptUpload
@@ -259,7 +261,7 @@ const Enrollment = () => {
               )}
               {selectedMethod?.id === WALLET.id && (
                 <p className="text-xs text-slate-500 mt-4 bg-slate-50 rounded-xl p-3">
-                  {money(discountedPrice)} is taken from your wallet now and your items unlock right away. You'll have {money(Math.max(0, balance - discountedPrice))} left.
+                  {egp(discountedPrice)} is taken from your wallet now and your items unlock right away. You'll have {egp(Math.max(0, balance - discountedPrice))} left.
                 </p>
               )}
               {selectedMethod?.type === "Automatic" && (
@@ -291,7 +293,7 @@ const Enrollment = () => {
                 </div>
                 <div className="flex justify-between items-baseline border-t border-slate-100 pt-3 mt-3">
                   <span className="font-extrabold text-gray-900">Total</span>
-                  <span className="font-extrabold text-2xl text-gray-900">{money(discountedPrice)}</span>
+                  <span className="font-extrabold text-2xl text-gray-900">{money(discountedPrice)}</span>{code !== "EGP" && <span className="block text-xs font-bold text-slate-500 text-right">You pay {egp(discountedPrice)}</span>}
                 </div>
               </div>
               <button className="btn-primary mt-5" onClick={handlePayment} disabled={submitting} style={submitting ? { opacity: 0.6 } : undefined}>

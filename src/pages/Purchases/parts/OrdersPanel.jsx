@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import useGet from "@/hooks/useGet";
 import { Kpi } from "@/components/portal/ui";
-import { ErrorCard, KIND_LABEL, OrderPill, fmtDate, kindClass, money } from "./shop";
+import { ErrorCard, KIND_LABEL, OrderPill, fmtDate, kindClass, egp as money } from "./shop"; // payments are recorded in EGP
 
 /* Order history (GET /api/user/enrollment/my-purchases) — one row per payment, with its status.
    Used by "My purchases → Orders" and by /user/pendingpurchases. `names` maps a content id to its name. */

@@ -21,6 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import api from "@/api/api";
+import { money } from "@/lib/currency";
 
 const BRAND = "#8B1A1A";
 const KNOWN_CHAPTER_IDS = {
@@ -43,14 +44,7 @@ const formatSeconds = (seconds) => {
   return `${Math.floor(value / 60)}m ${Math.round(value % 60)}s`;
 };
 
-const formatMoney = (value) => {
-  const amount = Number(value) || 0;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EGP",
-    maximumFractionDigits: 2,
-  }).format(amount);
-};
+const formatMoney = (value) => money(value); // lesson prices in the student's currency
 
 const getAnswerText = (answer, options = []) => {
   if (answer === undefined || answer === null || answer === "")

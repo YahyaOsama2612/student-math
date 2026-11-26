@@ -5,8 +5,9 @@ import { useNavigate } from "react-router-dom";
 import Icon from "@/components/portal/Icon";
 import { Modal } from "@/components/portal/ui";
 
-/** 1200 → "1,200 EGP" */
-export const money = (n) => `${(Number(n) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} EGP`;
+/** Prices in the student's currency (lib/currency.js); egp() for amounts actually paid. */
+export { money, egp, moneyBoth } from "@/lib/currency";
+import { money, egp as egpText, getCurrent } from "@/lib/currency";
 
 export const getDefaultPlan = (plans) => {
   if (!plans || plans.length === 0) return null;
@@ -132,7 +133,7 @@ export function SelectionCart({ items, total, onRemove, onClear, onCheckout }) {
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
               <div>
                 <p className="text-lg font-extrabold text-gray-900">Your cart</p>
-                <p className="text-xs text-slate-400">{n} item{n === 1 ? "" : "s"} · prices in EGP</p>
+                <p className="text-xs text-slate-400">{n} item{n === 1 ? "" : "s"} · prices in {getCurrent()}</p>
               </div>
               <button onClick={() => setOpen(false)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:text-one" aria-label="Close cart">
                 <Icon name="x" size={16} />
@@ -205,7 +206,7 @@ export function WalletOption({ balance, price, selected, onSelect, onTopUp, grou
       <span className="min-w-0 flex-1">
         <span className="block font-extrabold text-sm text-gray-900">My wallet</span>
         <span className="block text-xs text-slate-400">
-          Balance {money(balance)}{enough ? " · paid instantly" : ` · not enough for ${money(price)}`}
+          Balance {egpText(balance)}{enough ? " · paid instantly" : ` · not enough for ${egpText(price)}`}
         </span>
       </span>
       {!enough && onTopUp && (
