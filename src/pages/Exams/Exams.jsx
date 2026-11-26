@@ -44,6 +44,8 @@ export default function Exams({ kind = "exam" }) {
       id: e.id, name: e.title, description: e.description, family: e.codeName || c.name || "Exams", minutes: e.duration,
       // the server knows if it was taken (attempt) and if an admin assigned it (free, no balance needed)
       done: !!(e.attempt && e.attempt.status !== "in_progress"), assigned: !!e.assigned, raw: e,
+      // started but not submitted → "In progress" + Continue (same attempt, no new balance)
+      inProgress: !!(e.attempt && (e.attempt.inProgress || e.attempt.status === "in_progress")), startedAt: e.attempt?.startedAt || null,
     })));
   }, [isD, examData, diagData]);
 
@@ -129,7 +131,7 @@ export default function Exams({ kind = "exam" }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {list.map((p) => {
               const r = results.get(p.id);
-              const taken = p.done || !!r || blocked[p.id];
+              const taken = !p.inProgress && (p.done || !!r || blocked[p.id]);
               const pct = r && r.totalScore ? Math.round((r.score / r.totalScore) * 100) : null;
               return (
                 <div key={p.id} className="card p-5 flex flex-col">
@@ -138,22 +140,31 @@ export default function Exams({ kind = "exam" }) {
                       <span className="pl-course">{p.family}</span>
                       {p.assigned && <span className="st-pill" style={{ color: "#7d0a0a", background: "#fef2f2", borderColor: "#fecaca" }} title="Your admin assigned this exam to you. It doesn't use your exam balance.">Assigned to you</span>}
                     </span>
-                    {taken
-                      ? <span className="st-pill" style={{ color: "#15803d", background: "#f0fdf4", borderColor: "#bbf7d0" }}>Taken</span>
-                      : <span className="st-pill" style={{ color: "#64748b", background: "#f8fafc", borderColor: "#e2e8f0" }}>Not taken</span>}
+                    {p.inProgress
+                      ? <span className="st-pill" style={{ color: "#b45309", background: "#fffbeb", borderColor: "#fde68a" }}>In progress</span>
+                      : taken
+                        ? <span className="st-pill" style={{ color: "#15803d", background: "#f0fdf4", borderColor: "#bbf7d0" }}>Taken</span>
+                        : <span className="st-pill" style={{ color: "#64748b", background: "#f8fafc", borderColor: "#e2e8f0" }}>Not taken</span>}
                   </div>
                   <h3 className="font-extrabold text-slate-900 leading-snug">{p.name}</h3>
                   <p className="text-xs text-slate-500 mt-1">{[p.questions ? `${p.questions} questions` : "", p.minutes ? `${p.minutes} min` : "", !isD ? p.description : ""].filter(Boolean).join(" · ") || p.description}</p>
-                  {r && (
+                  {p.inProgress && (
+                    <div className="mt-4 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5 text-xs text-amber-800">
+                      You started this exam{p.startedAt ? ` on ${new Date(String(p.startedAt).replace(" ", "T")).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""} and didn&apos;t submit it yet. Continue where you left off. Your answers are saved.
+                    </div>
+                  )}
+                  {r && !p.inProgress && (
                     <div className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
                       <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your score</p><p className={`text-2xl font-extrabold score ${scoreTone(pct ?? 0)}`}>{r.score}{r.totalScore ? <span className="text-sm text-slate-400"> / {r.totalScore}</span> : null}</p></div>
                       <div className="text-xs text-slate-500 ml-auto text-right">{r.mistakesCount != null ? `${r.mistakesCount} mistake${r.mistakesCount === 1 ? "" : "s"}` : ""}{r.date ? <><br />{new Date(r.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</> : null}</div>
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2 mt-auto pt-4">
-                    {taken && isD
-                      ? <button className="pl-btn flex-1 justify-center" disabled style={{ opacity: 0.6 }} title="Each diagnostic exam is one try — ask the admin for another try">✓ Taken · one try</button>
-                      : <button className="pl-btn primary flex-1 justify-center" onClick={() => setConfirm(p)}>{taken ? "Take again" : "Start exam"}</button>}
+                    {p.inProgress
+                      ? <button className="pl-btn primary flex-1 justify-center" onClick={() => start(p)} disabled={starting}>{starting ? "Opening…" : "Continue exam"}</button>
+                      : taken && isD
+                        ? <button className="pl-btn flex-1 justify-center" disabled style={{ opacity: 0.6 }} title="Each diagnostic exam is one try — ask the admin for another try">✓ Taken · one try</button>
+                        : <button className="pl-btn primary flex-1 justify-center" onClick={() => setConfirm(p)}>{taken ? "Take again" : "Start exam"}</button>}
                     {r && <button className="pl-btn" onClick={() => navigate(isD ? "/user/reports/diagnostic-exam" : "/user/reports/exams")}>Result</button>}
                   </div>
                 </div>

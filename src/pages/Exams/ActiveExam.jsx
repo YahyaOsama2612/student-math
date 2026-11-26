@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import useGet from "@/hooks/useGet";
 import Loading from "../../components/Loading";
@@ -659,6 +659,85 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
     }
   }, [examMode, rawAttempt, navigate]);
 
+  // ── Continue an unfinished exam ───────────────────────────────────────────
+  // The attempt comes back with the answers saved so far (draftAnswers) and where each section stands.
+  // Restore them once: finished sections stay done, and a section left open (or on a break) is re-entered
+  // straight away with the time the server says is left.
+  const restoredRef = useRef(false);
+  const [resumeIndex, setResumeIndex] = useState(null);
+  useEffect(() => {
+    if (examMode !== "exam" || restoredRef.current || !rawAttempt || rawAttempt.status !== "in_progress" || !sections.length) return;
+    restoredRef.current = true;
+    const draft = rawAttempt.draftAnswers && typeof rawAttempt.draftAnswers === "object" ? rawAttempt.draftAnswers : {};
+    const states = Array.isArray(rawAttempt.sections) ? rawAttempt.sections : [];
+    const done = states.filter((s) => s.status === "completed" || s.status === "timed_out").map((s) => s.examSectionId);
+    const openIdx = sections.findIndex((sec) => states.some((s) => s.examSectionId === sec.id && (s.status === "in_progress" || s.status === "on_break")));
+    const restored = Object.keys(draft).length;
+    if (restored) {
+      setAnswers(draft);
+      lastSavedRef.current = JSON.stringify(draft);
+    }
+    if (done.length) setSubmittedIds(done);
+    if (openIdx >= 0) setResumeIndex(openIdx);
+    if (restored || done.length || openIdx >= 0) {
+      Swal.fire({
+        toast: true, position: "top", timer: 3500, showConfirmButton: false, icon: "info",
+        title: restored ? `Welcome back — your ${restored} answer${restored === 1 ? " is" : "s are"} restored` : "Welcome back — continue where you left off",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examMode, rawAttempt, sections]);
+  // re-enter the section that was open (runs once the restore above has set it)
+  useEffect(() => {
+    if (resumeIndex == null || pending || !attemptId) return;
+    const i = resumeIndex;
+    setResumeIndex(null);
+    requestStart(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeIndex, pending, attemptId]);
+
+  // Autosave: the answers picked so far are saved about a second after each change, and right away
+  // when the student leaves the exam or closes the tab.
+  const lastSavedRef = useRef("");
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const draftUrl = examMode === "exam" && attemptId ? `/api/user/exams/${id}/attempts/${attemptId}/draft` : null;
+  const saveDraft = useCallback((keepalive = false) => {
+    if (!draftUrl || !restoredRef.current) return;
+    const body = JSON.stringify(answersRef.current || {});
+    if (body === lastSavedRef.current) return;
+    lastSavedRef.current = body;
+    if (keepalive) {
+      // leaving the page: fetch with keepalive survives the unload
+      const token = localStorage.getItem("token");
+      try {
+        fetch(`${api.defaults.baseURL || ""}${draftUrl}`, {
+          method: "PUT", keepalive: true,
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token.replace(/^"|"$/g, "")}` } : {}) },
+          body: JSON.stringify({ answers: answersRef.current || {} }),
+        }).catch(() => {});
+      } catch { /* nothing more we can do while unloading */ }
+      return;
+    }
+    api.put(draftUrl, { answers: answersRef.current || {} }).catch(() => { lastSavedRef.current = ""; });
+  }, [draftUrl]);
+  useEffect(() => {
+    if (!draftUrl) return undefined;
+    const t = setTimeout(() => saveDraft(), 900);
+    return () => clearTimeout(t);
+  }, [answers, draftUrl, saveDraft]);
+  useEffect(() => {
+    if (!draftUrl) return undefined;
+    const onLeave = () => saveDraft(true);
+    window.addEventListener("beforeunload", onLeave);
+    window.addEventListener("pagehide", onLeave);
+    return () => {
+      window.removeEventListener("beforeunload", onLeave);
+      window.removeEventListener("pagehide", onLeave);
+      saveDraft(true); // leaving the exam screen inside the app (Back, another page)
+    };
+  }, [draftUrl, saveDraft]);
+
   const getNavButtonSize = (count) => {
     if (count <= 10) return "w-9 h-9 text-sm";
     if (count <= 20) return "w-8 h-8 text-[12px]";
@@ -908,7 +987,13 @@ const ActiveExam = ({ onExit, examMode: examModeProp, exam: examProp }) => {
 
   const handleRequestError = (err) => {
     const type = pending?.type;
+    const sectionId = sections[pending?.sectionIndex]?.id;
     setPending(null);
+    // the section's time (or break) ran out while the student was away: it is closed now
+    if (type === "start" && sectionId && /expired|timed out/i.test(getErrorMessage(err, ""))) {
+      setSubmittedIds((prev) => (prev.includes(sectionId) ? prev : [...prev, sectionId]));
+      setPhase("intro");
+    }
     showError(
       getErrorMessage(
         err,
